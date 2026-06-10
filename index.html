@@ -30,7 +30,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .menu-btn{background:rgba(255,255,255,.18);border:none;color:#fff;width:36px;height:36px;border-radius:9px;font-size:19px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 
 /* MAIN */
-main{flex:1;overflow-y:auto;padding-bottom:76px;-webkit-overflow-scrolling:touch}
+main{flex:1;overflow-y:auto;padding-bottom:85px;-webkit-overflow-scrolling:touch}
 .view{display:none;padding:13px;animation:fi .2s ease}
 .view.active{display:block}
 @keyframes fi{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
@@ -96,11 +96,11 @@ main{flex:1;overflow-y:auto;padding-bottom:76px;-webkit-overflow-scrolling:touch
 .b-gray{background:#F3F4F6;color:#374151}
 
 /* FAB */
-.fab{position:absolute;bottom:78px;right:16px;width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,var(--pr),var(--pr2));color:#fff;border:none;font-size:26px;cursor:pointer;box-shadow:0 4px 14px rgba(21,101,192,.4);z-index:5;display:none;align-items:center;justify-content:center}
+.fab{position:fixed;bottom:78px;right:16px;width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,var(--pr),var(--pr2));color:#fff;border:none;font-size:26px;cursor:pointer;box-shadow:0 4px 14px rgba(21,101,192,.4);z-index:5;display:none;align-items:center;justify-content:center}
 .fab:active{transform:scale(.95)}
 
 /* BOTTOM NAV */
-.bnav{position:absolute;bottom:0;left:0;right:0;background:#fff;display:flex;border-top:1px solid var(--bdr);padding:5px 2px;padding-bottom:max(5px,env(safe-area-inset-bottom));z-index:8}
+.bnav{position:fixed;bottom:0;left:0;right:0;background:#fff;display:flex;border-top:1px solid var(--bdr);padding:5px 2px;padding-bottom:max(5px,env(safe-area-inset-bottom));z-index:8;max-width:520px;margin:0 auto}
 .nbtn{flex:1;background:none;border:none;padding:7px 2px;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;color:var(--muted);font-family:inherit;font-size:10px;font-weight:600;border-radius:8px}
 .nbtn .ic{font-size:20px;line-height:1}
 .nbtn.active{color:var(--pr)}
@@ -613,6 +613,22 @@ function closeSheet(){ document.getElementById('sheet').classList.remove('show')
 let _selCli = null; // {id, nombre, nit, cel}
 let _selObra = null; // {id, nombre}
 
+function toggleMovClienteMode(mode){
+  // mode: 'selector' o 'libre'
+  const wrap = document.getElementById('movClienteLibreWrap');
+  const selWrap = document.getElementById('cliSelMov');
+  if(!wrap||!selWrap) return;
+  if(mode==='libre'){
+    selWrap.style.display='none';
+    wrap.style.display='block';
+    _selCli=null; _selObra=null;
+  } else {
+    selWrap.style.display='block';
+    wrap.style.display='none';
+    document.getElementById('movClienteLibre') && (document.getElementById('movClienteLibre').value='');
+  }
+}
+
 function buildClienteSelector(containerId, required=true, preCliId=null, preObraId=null){
   const c = preCliId ? S.cli.find(x=>x.id===preCliId) : null;
   _selCli = c ? {id:c.id,nombre:c.nombre,nit:c.nit||'',cel:c.cel||''} : null;
@@ -857,7 +873,7 @@ SHEETS.sCotizacion=()=>`
       <div class="f"><label>Fecha</label><input id="cotFecha" type="date" value="${_editCot?.fecha||hoy()}"></div>
     </div>
     <div id="cliSelCot"></div>
-    <div class="f"><label>Descripción / Título de la cotización</label><input id="cotObra" type="text" value="${esc(_editCot?.obra||'')}" placeholder="Ej: Estructura techo bodega Caicedo"></div>
+    <div class="f"><label>Nombre de la Obra <span class='req'>*</span></label><input id="cotObra" type="text" value="${esc(_editCot?.obra||'')}" placeholder="Ej: Estructura techo bodega Caicedo"></div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin:13px 0 7px">
       <strong style="font-size:13px">Trabajos / Secciones</strong>
       <button class="btn btn-gh btn-sm" onclick="cotAddSec()" style="flex:0 0 auto">+ Sección</button>
@@ -867,6 +883,10 @@ SHEETS.sCotizacion=()=>`
     <div class="r2">
       <div class="f"><label>Tiempo de entrega</label><input id="cotTiempo" value="${esc(_editCot?.tiempoEntrega||'')}"></div>
       <div class="f"><label>Condiciones de pago</label><input id="cotCond" value="${esc(_editCot?.condicionesPago||'')}"></div>
+    </div>
+    <div class="r2">
+      <div class="f"><label>Anticipo recibido</label><input id="cotAnticipo" type="text" inputmode="numeric" value="${_editCot?.anticipo||''}" placeholder="0" onfocus="this.select()" oninput="recalcCot()"></div>
+      <div class="f"><label>Saldo pendiente</label><input id="cotSaldo" readonly style="background:#F3F4F6;color:var(--muted)" value="${_editCot?.anticipo?fmtCOP((_editCot._total||0)-parseCOP(_editCot.anticipo||0)):''}"></div>
     </div>
     <div class="f"><label>Observaciones</label><input id="cotObs" value="${esc(_editCot?.observaciones||'')}"></div>
     <div style="background:linear-gradient(135deg,#EFF6FF,#DBEAFE);padding:12px;border-radius:10px;text-align:center;margin:10px 0">
@@ -904,7 +924,14 @@ function cotUpdSec(i,k,v){ if(k==='precio')v=parseCOP(v); _editCot.secciones[i][
 function cotAddItem(i){ _editCot.secciones[i].items.push({cant:'',desc:''}); renderSecsCot(); }
 function cotDelItem(i,j){ _editCot.secciones[i].items.splice(j,1); renderSecsCot(); }
 function cotUpdItem(i,j,k,v){ _editCot.secciones[i].items[j][k]=v; }
-function recalcCot(){ const t=_editCot.secciones.reduce((s,sec)=>s+(Number(sec.precio)||0),0); _editCot._total=t; const el=document.getElementById('cotTotalDisp'); if(el)el.textContent=fmtCOP(t); }
+function recalcCot(){
+  const t=_editCot.secciones.reduce((s,sec)=>s+(Number(sec.precio)||0),0);
+  _editCot._total=t;
+  const el=document.getElementById('cotTotalDisp'); if(el)el.textContent=fmtCOP(t);
+  const ant=parseCOP(document.getElementById('cotAnticipo')?.value||'0');
+  const saldo=document.getElementById('cotSaldo');
+  if(saldo) saldo.value=ant>0?fmtCOP(t-ant):'';
+}
 
 async function guardarCot(){
   if(!_selCli){toast('⚠️ Selecciona el cliente');return;}
@@ -927,6 +954,7 @@ async function guardarCot(){
     observaciones:document.getElementById('cotObs').value.trim(),
     tiempoEntrega:document.getElementById('cotTiempo').value.trim(),
     condicionesPago:document.getElementById('cotCond').value.trim(),
+    anticipo:parseCOP(document.getElementById('cotAnticipo').value||'0'),
     total:_editCot._total||0, creadoEn:_editCot.creadoEn||Date.now()
   };
   const idx=S.cot.findIndex(x=>x.id===cot.id);
@@ -950,6 +978,7 @@ SHEETS.sVerCot=(c)=>`
     ${c.varios?`<div class="dtl"><h4>Materiales varios</h4>${esc(c.varios)}</div>`:''}
     <div class="dtl" style="background:linear-gradient(135deg,var(--pr),var(--pr2));color:#fff">
       <div class="dr" style="border-color:rgba(255,255,255,.2)"><span class="k" style="color:rgba(255,255,255,.8)">TOTAL</span><span class="v" style="font-size:20px;color:#fff">${fmtCOP(c.total)}</span></div>
+      ${c.anticipo>0?`<div class="dr" style="border-color:rgba(255,255,255,.2)"><span class="k" style="color:rgba(255,255,255,.8)">Anticipo</span><span class="v" style="color:#A5F3FC">- ${fmtCOP(c.anticipo)}</span></div><div class="dr" style="border-color:rgba(255,255,255,.2)"><span class="k" style="color:rgba(255,255,255,.8)">Saldo pendiente</span><span class="v" style="color:#FDE68A;font-size:17px">${fmtCOP(c.total-c.anticipo)}</span></div>`:''}
     </div>
   </div>
   <div class="sf" style="flex-wrap:wrap">
@@ -1067,7 +1096,19 @@ SHEETS.sMovimiento=()=>{
         <option value="taller" ${_editMov?.categoria==='taller'?'selected':''}>🔧 Taller (general)</option>
       </select>
     </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Cliente / Para quién</span>
+      <div style="display:flex;gap:4px">
+        <button class="btn btn-sm" id="btnModeSel" onclick="toggleMovClienteMode('selector')" style="flex:0;padding:4px 8px;font-size:11px;background:var(--pr);color:#fff;border-radius:6px">🔍 De la lista</button>
+        <button class="btn btn-sm" id="btnModeLibre" onclick="toggleMovClienteMode('libre')" style="flex:0;padding:4px 8px;font-size:11px;background:#F3F4F6;color:var(--text);border-radius:6px">✍️ Escribir</button>
+      </div>
+    </div>
     <div id="cliSelMov"></div>
+    <div id="movClienteLibreWrap" style="display:none">
+      <div class="f" style="margin-top:0">
+        <input id="movClienteLibre" type="text" placeholder="Ej: Pepito Pérez, Ferretería Central...">
+      </div>
+    </div>
     <div class="f"><label>Notas</label><textarea id="movNotas" rows="2">${esc(_editMov?.notas||'')}</textarea></div>
   </div>
   <div class="sf">
@@ -1081,8 +1122,10 @@ async function guardarMov(){
   const cat=document.getElementById('movCat').value;
   if(monto<=0){toast('Monto inválido');return;}
   if(!desc){toast('Falta descripción');return;}
-  // Para categoría proyecto, el cliente es requerido para ingresos; opcional para gastos
+  // Ingresos de proyecto: cliente obligatorio
   if(_editMov.tipo==='ingreso'&&cat==='proyecto'&&!_selCli){toast('⚠️ Un ingreso de proyecto requiere cliente');return;}
+  // Gastos: cliente siempre opcional, pero si hay clienteNombreLibre usarlo
+  const clienteLibre=document.getElementById('movClienteLibre')?.value?.trim()||null;
   // Obra opcional para gastos generales
   let obra=null;
   if(_selCli&&_selObra){
@@ -1097,7 +1140,8 @@ async function guardarMov(){
     monto,descripcion:desc,
     categoria:cat,
     metodoPago:document.getElementById('movMP').value,
-    clienteId:_selCli?.id||null, clienteNombre:_selCli?.nombre||null,
+    clienteId:_selCli?.id||null,
+    clienteNombre:_selCli?.nombre||clienteLibre||null,
     obraId:obra?.id||null, obraNombre:obra?.nombre||null,
     notas:document.getElementById('movNotas').value.trim(),
     creadoEn:_editMov?.creadoEn||Date.now()
