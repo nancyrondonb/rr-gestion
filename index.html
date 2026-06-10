@@ -613,22 +613,9 @@ function closeSheet(){ document.getElementById('sheet').classList.remove('show')
 let _selCli = null; // {id, nombre, nit, cel}
 let _selObra = null; // {id, nombre}
 
-function toggleMovClienteMode(mode){
-  // mode: 'selector' o 'libre'
-  const wrap = document.getElementById('movClienteLibreWrap');
-  const selWrap = document.getElementById('cliSelMov');
-  if(!wrap||!selWrap) return;
-  if(mode==='libre'){
-    selWrap.style.display='none';
-    wrap.style.display='block';
-    _selCli=null; _selObra=null;
-  } else {
-    selWrap.style.display='block';
-    wrap.style.display='none';
-    document.getElementById('movClienteLibre') && (document.getElementById('movClienteLibre').value='');
-  }
-}
-
+// ============================================================
+// SELECTOR DE CLIENTE + OBRA — unificado para toda la app
+// ============================================================
 function buildClienteSelector(containerId, required=true, preCliId=null, preObraId=null){
   const c = preCliId ? S.cli.find(x=>x.id===preCliId) : null;
   _selCli = c ? {id:c.id,nombre:c.nombre,nit:c.nit||'',cel:c.cel||''} : null;
@@ -640,7 +627,9 @@ function buildClienteSelector(containerId, required=true, preCliId=null, preObra
 function renderClienteSelector(containerId, required=true){
   const cont = document.getElementById(containerId);
   if(!cont) return;
+
   if(_selCli){
+    // ── Cliente seleccionado: mostrar tag + obras ──
     const obras = S.obr.filter(ob=>ob.clienteId===_selCli.id);
     cont.innerHTML=`
       <div class="f">
@@ -648,29 +637,38 @@ function renderClienteSelector(containerId, required=true){
         <div class="cli-tag">
           <div class="info">
             <div class="nm">👤 ${esc(_selCli.nombre)}</div>
-            <div class="sub">${_selCli.nit?'NIT: '+esc(_selCli.nit):''}${_selCli.cel?' · 📞 '+esc(_selCli.cel):''}</div>
+            <div class="sub">${_selCli.nit?'NIT/CC: '+esc(_selCli.nit):''}${_selCli.cel?' · 📞 '+esc(_selCli.cel):''}</div>
           </div>
           <button class="change" onclick="clearClienteSel('${containerId}',${required})">Cambiar</button>
         </div>
       </div>
-      <div class="f" id="obraField_${containerId}">
+      <div class="f">
         <div class="obra-wrap">
           <div class="obra-title">Obra / Proyecto <span class="req">*</span></div>
           <div class="obra-opts" id="obraOpts_${containerId}">
-            ${obras.map(ob=>`<button class="obra-chip ${_selObra&&_selObra.id===ob.id?'sel':''}" onclick="selObra('${ob.id}','${esc(ob.nombre)}','${containerId}')">${esc(ob.nombre)}</button>`).join('')}
+            ${obras.map(ob=>`<button class="obra-chip${_selObra&&_selObra.id===ob.id?' sel':''}" onclick="selObra('${ob.id}','${esc(ob.nombre)}','${containerId}')">${esc(ob.nombre)}</button>`).join('')}
             <button class="obra-chip new" onclick="nuevaObraInline('${containerId}')">+ Nueva obra</button>
           </div>
-          <input type="text" id="obraInput_${containerId}" placeholder="Nombre de la obra (ej: Casa Caicedo)" value="${_selObra?esc(_selObra.nombre):''}" style="display:${_selObra||obras.length>0?'none':'block'};margin-top:6px" onchange="obraInputChange(this,'${containerId}')">
+          <input type="text" id="obraInput_${containerId}"
+            placeholder="Nombre de la obra (ej: Casa Caicedo)"
+            value="${_selObra&&!_selObra.id?esc(_selObra.nombre):''}"
+            style="display:${obras.length===0?'block':'none'};margin-top:6px"
+            oninput="obraInputChange(this,'${containerId}')">
         </div>
       </div>`;
   } else {
+    // ── Sin cliente: mostrar búsqueda ──
     cont.innerHTML=`
       <div class="f">
-        <label>Cliente${required?'<span class="req">*</span>':''}</label>
+        <label>Cliente${required?'<span class="req">*</span>':''} ${!required?'<span style="font-weight:400;color:var(--muted)">(opcional)</span>':''}</label>
         <div class="cli-search">
-          <input id="cliSearchInput_${containerId}" type="text" placeholder="Buscar o escribir nombre del cliente..." oninput="onCliSearch(this,'${containerId}',${required})" autocomplete="off">
+          <input id="cliSearchInput_${containerId}" type="text"
+            placeholder="Buscar o escribir nombre..."
+            oninput="onCliSearch(this,'${containerId}',${required})"
+            autocomplete="off">
         </div>
         <div class="cli-dropdown" id="cliDrop_${containerId}"></div>
+        ${!required?`<button class="btn-gh btn-sm" onclick="skipCliente('${containerId}')" style="margin-top:5px;width:100%;border-radius:8px;padding:7px;font-size:12px;background:none;border:1px dashed var(--bdr);color:var(--muted);cursor:pointer;font-family:inherit">Sin cliente (gasto general)</button>`:''}
       </div>`;
   }
 }
@@ -681,8 +679,8 @@ function onCliSearch(inp, cid, required){
   if(!q){ drop.classList.remove('open'); drop.innerHTML=''; return; }
   const matches=S.cli.filter(c=>(c.nombre||'').toLowerCase().includes(q)||(c.nit||'').includes(q));
   const rows=matches.map(c=>`<div class="cli-opt" onclick="selCli('${c.id}','${cid}',${required})">
-    <div class="opt-name">${esc(c.nombre)}</div>
-    <div class="opt-sub">${c.nit?'NIT: '+esc(c.nit):''}${c.cel?' · '+esc(c.cel):''}</div>
+    <div class="opt-name">👤 ${esc(c.nombre)}</div>
+    <div class="opt-sub">${c.nit?'NIT: '+esc(c.nit):'Sin NIT'}${c.cel?' · '+esc(c.cel):''} · ${S.obr.filter(o=>o.clienteId===c.id).length} obra(s)</div>
   </div>`).join('');
   const newRow=`<div class="cli-opt new-cli" onclick="crearYSelCli('${esc(inp.value)}','${cid}',${required})">➕ Crear cliente "<strong>${esc(inp.value)}</strong>"</div>`;
   drop.innerHTML=rows+newRow;
@@ -695,9 +693,26 @@ function selCli(id, cid, required){
   _selObra=null;
   renderClienteSelector(cid,required);
 }
+
+// Ignorar cliente (para gastos generales)
+function skipCliente(cid){
+  _selCli=null; _selObra=null;
+  const cont=document.getElementById(cid);
+  if(!cont)return;
+  cont.innerHTML=`
+    <div class="f">
+      <label>Sin cliente asignado</label>
+      <div style="background:#F8FAFC;border:1px solid var(--bdr);border-radius:10px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between">
+        <span style="color:var(--muted);font-size:13px">Gasto general / sin obra</span>
+        <button class="change" style="background:none;border:none;color:var(--pr);font-size:12px;font-weight:700;cursor:pointer" onclick="renderClienteSelector('${cid}',false)">Asignar</button>
+      </div>
+    </div>`;
+  // Marcar que se eligió "sin cliente"
+  _selCli = {id:null,nombre:null,nit:null,cel:null,skip:true};
+}
+
 async function crearYSelCli(nombre, cid, required){
   if(!nombre.trim()){toast('Escribe el nombre del cliente');return;}
-  // abrir mini-form para completar datos
   _pendingCliName=nombre.trim(); _pendingCliCid=cid; _pendingCliRequired=required;
   showSheet('sNuevoCliRapido');
 }
@@ -709,12 +724,12 @@ SHEETS.sNuevoCliRapido=()=>`
     <div class="ibox ibox-blue">Completa los datos del cliente para la base de datos.</div>
     <div class="f"><label>Nombre / Razón Social <span class="req">*</span></label><input id="ncNombre" value="${esc(_pendingCliName)}"></div>
     <div class="r2">
-      <div class="f"><label>NIT / Cédula <span class="req">*</span></label><input id="ncNit" type="text" inputmode="numeric" placeholder="Ej: 901394839-0"></div>
+      <div class="f"><label>NIT / Cédula ${_pendingCliRequired?'<span class=\'req\'>*</span>':'<span style=\'color:var(--muted);font-weight:400\'>(opcional)</span>'}</label><input id="ncNit" type="text" inputmode="numeric" placeholder="Ej: 901394839-0"></div>
       <div class="f"><label>Celular</label><input id="ncCel" type="tel" placeholder="Ej: 3001234567"></div>
     </div>
     <div class="f"><label>Email</label><input id="ncEmail" type="email"></div>
     <div class="f"><label>Dirección</label><input id="ncDir" type="text" placeholder="Ej: Calle 5 #3-20, Puerto Asís"></div>
-    <p class="meta" style="padding:0 2px;margin-top:4px">El NIT o cédula es importante para identificar al cliente en cotizaciones y cuentas de cobro.</p>
+    <p class="meta" style="padding:0 2px;margin-top:4px">${_pendingCliRequired?'El NIT o cédula es obligatorio para cotizaciones y cuentas de cobro.':'Para gastos informales el NIT es opcional.'}</p>
   </div>
   <div class="sf">
     <button class="btn btn-sec" onclick="closeSheet()">Cancelar</button>
@@ -725,7 +740,7 @@ async function guardarNuevoCli(){
   const nombre=document.getElementById('ncNombre').value.trim();
   const nit=document.getElementById('ncNit').value.trim();
   if(!nombre){toast('Falta el nombre');return;}
-  if(!nit){toast('El NIT o cédula es obligatorio');return;}
+  if(_pendingCliRequired&&!nit){toast('El NIT o cédula es obligatorio para cotizaciones');return;}
   const c={id:uid(),nombre,nit,cel:document.getElementById('ncCel').value.trim(),email:document.getElementById('ncEmail').value.trim(),direccion:document.getElementById('ncDir').value.trim(),creadoEn:Date.now()};
   S.cli.push(c);
   await DB.set(KEYS.CLI,S.cli);
@@ -885,7 +900,7 @@ SHEETS.sCotizacion=()=>`
       <div class="f"><label>Condiciones de pago</label><input id="cotCond" value="${esc(_editCot?.condicionesPago||'')}"></div>
     </div>
     <div class="r2">
-      <div class="f"><label>Anticipo recibido</label><input id="cotAnticipo" type="text" inputmode="numeric" value="${_editCot?.anticipo||''}" placeholder="0" onfocus="this.select()" oninput="recalcCot()"></div>
+      <div class="f"><label>Anticipo (opcional)</label><input id="cotAnticipo" type="text" inputmode="numeric" value="${_editCot?.anticipo||''}" placeholder="0" onfocus="this.select()" oninput="recalcCot()"></div>
       <div class="f"><label>Saldo pendiente</label><input id="cotSaldo" readonly style="background:#F3F4F6;color:var(--muted)" value="${_editCot?.anticipo?fmtCOP((_editCot._total||0)-parseCOP(_editCot.anticipo||0)):''}"></div>
     </div>
     <div class="f"><label>Observaciones</label><input id="cotObs" value="${esc(_editCot?.observaciones||'')}"></div>
@@ -1069,7 +1084,7 @@ SHEETS.sTipoMov=()=>`
 function nuevoMovimiento(tipo,preCliId=null){
   _editMov={tipo,fecha:hoy(),metodoPago:'efectivo',categoria:'proyecto',clienteId:preCliId||null};
   showSheet('sMovimiento');
-  setTimeout(()=>buildClienteSelector('cliSelMov', tipo==='ingreso', preCliId||null, null),50);
+  setTimeout(()=>buildClienteSelector('cliSelMov', _editMov.tipo==='ingreso', preCliId||null, null),50);
 }
 function editarMov(id){ const m=S.mov.find(x=>x.id===id); if(!m)return; _editMov=JSON.parse(JSON.stringify(m)); closeSheet(); setTimeout(()=>{ showSheet('sMovimiento'); setTimeout(()=>buildClienteSelector('cliSelMov',m.tipo==='ingreso',m.clienteId||null,m.obraId||null),50); },150); }
 SHEETS.sMovimiento=()=>{
@@ -1096,19 +1111,7 @@ SHEETS.sMovimiento=()=>{
         <option value="taller" ${_editMov?.categoria==='taller'?'selected':''}>🔧 Taller (general)</option>
       </select>
     </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-      <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Cliente / Para quién</span>
-      <div style="display:flex;gap:4px">
-        <button class="btn btn-sm" id="btnModeSel" onclick="toggleMovClienteMode('selector')" style="flex:0;padding:4px 8px;font-size:11px;background:var(--pr);color:#fff;border-radius:6px">🔍 De la lista</button>
-        <button class="btn btn-sm" id="btnModeLibre" onclick="toggleMovClienteMode('libre')" style="flex:0;padding:4px 8px;font-size:11px;background:#F3F4F6;color:var(--text);border-radius:6px">✍️ Escribir</button>
-      </div>
-    </div>
     <div id="cliSelMov"></div>
-    <div id="movClienteLibreWrap" style="display:none">
-      <div class="f" style="margin-top:0">
-        <input id="movClienteLibre" type="text" placeholder="Ej: Pepito Pérez, Ferretería Central...">
-      </div>
-    </div>
     <div class="f"><label>Notas</label><textarea id="movNotas" rows="2">${esc(_editMov?.notas||'')}</textarea></div>
   </div>
   <div class="sf">
@@ -1124,14 +1127,16 @@ async function guardarMov(){
   if(!desc){toast('Falta descripción');return;}
   // Ingresos de proyecto: cliente obligatorio
   if(_editMov.tipo==='ingreso'&&cat==='proyecto'&&!_selCli){toast('⚠️ Un ingreso de proyecto requiere cliente');return;}
-  // Gastos: cliente siempre opcional, pero si hay clienteNombreLibre usarlo
-  const clienteLibre=document.getElementById('movClienteLibre')?.value?.trim()||null;
   // Obra opcional para gastos generales
   let obra=null;
-  if(_selCli&&_selObra){
+  if(_selCli&&!_selCli.skip&&_selObra){
     const obraInput=document.getElementById('obraInput_cliSelMov');
     if(obraInput&&obraInput.style.display!=='none'&&obraInput.value.trim()) _selObra={id:null,nombre:obraInput.value.trim()};
     obra=await asegurarObra();
+  } else if(_selCli&&!_selCli.skip&&!_selObra){
+    // Revisar si hay texto en obraInput
+    const obraInput=document.getElementById('obraInput_cliSelMov');
+    if(obraInput&&obraInput.value.trim()){ _selObra={id:null,nombre:obraInput.value.trim()}; obra=await asegurarObra(); }
   }
   const m={
     id:_editMov?.id||uid(),
@@ -1140,8 +1145,8 @@ async function guardarMov(){
     monto,descripcion:desc,
     categoria:cat,
     metodoPago:document.getElementById('movMP').value,
-    clienteId:_selCli?.id||null,
-    clienteNombre:_selCli?.nombre||clienteLibre||null,
+    clienteId:(_selCli&&!_selCli.skip)?_selCli.id||null:null,
+    clienteNombre:(_selCli&&!_selCli.skip)?_selCli.nombre||null:null,
     obraId:obra?.id||null, obraNombre:obra?.nombre||null,
     notas:document.getElementById('movNotas').value.trim(),
     creadoEn:_editMov?.creadoEn||Date.now()
