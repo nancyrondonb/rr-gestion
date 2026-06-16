@@ -2,9 +2,12 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#1565C0">
-<title>Ornamentación RR</title>
+<title>Ornamentación RR v3.1</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
@@ -672,6 +675,26 @@ function renderMovimientos(){
 }
 
 // ===== DATOS =====
+
+function renderDatos(){
+  document.getElementById('infoCli').textContent=S.cli.length+' registrados';
+  document.getElementById('infoMat').textContent=S.mat.length+' registrados';
+  document.getElementById('infoProv').textContent=S.prov.length+' registrados';
+  const st=document.getElementById('syncStatusTxt');
+  if(st)st.textContent=S.cfg.syncEnabled&&S.cfg.syncUrl?'🟢 Sincronización activa':'No configurado';
+}
+
+// ===== SHEET SYSTEM =====
+const SHEETS={};
+function showSheet(name,...args){
+  const r=SHEETS[name]; if(!r){console.error('No sheet:',name);return;}
+  const c=document.getElementById('sheetContent');
+  c.innerHTML=r(...args);
+  const sh=document.getElementById('sheet'); sh.classList.add('show');
+  setTimeout(()=>{ sh.onclick=e=>{ if(e.target===sh)closeSheet(); }; },10);
+}
+function closeSheet(){ document.getElementById('sheet').classList.remove('show'); }
+
 // ===== NÓMINA =====
 let _nomTab='pagos';
 function setNomTab(tab,btn){ _nomTab=tab; document.querySelectorAll('#v-nomina .tabs button').forEach(b=>b.classList.remove('active')); if(btn)btn.classList.add('active'); renderNomina(); }
@@ -758,25 +781,6 @@ async function guardarTrabajador(){
 }
 async function elimTrabajador(id){ if(!confirm('¿Eliminar?'))return; S.trb=S.trb.filter(x=>x.id!==id); await DB.set(KEYS.TRB,S.trb); closeSheet(); toast('Eliminado'); renderNomina(); }
 
-function renderDatos(){
-  document.getElementById('infoCli').textContent=S.cli.length+' registrados';
-  document.getElementById('infoMat').textContent=S.mat.length+' registrados';
-  document.getElementById('infoProv').textContent=S.prov.length+' registrados';
-  const st=document.getElementById('syncStatusTxt');
-  if(st)st.textContent=S.cfg.syncEnabled&&S.cfg.syncUrl?'🟢 Sincronización activa':'No configurado';
-}
-
-// ===== SHEET SYSTEM =====
-const SHEETS={};
-function showSheet(name,...args){
-  const r=SHEETS[name]; if(!r){console.error('No sheet:',name);return;}
-  const c=document.getElementById('sheetContent');
-  c.innerHTML=r(...args);
-  const sh=document.getElementById('sheet'); sh.classList.add('show');
-  setTimeout(()=>{ sh.onclick=e=>{ if(e.target===sh)closeSheet(); }; },10);
-}
-function closeSheet(){ document.getElementById('sheet').classList.remove('show'); }
-
 // ===== CLIENTE SELECTOR WIDGET =====
 // clienteId seleccionado actualmente
 let _selCli = null; // {id, nombre, nit, cel}
@@ -849,13 +853,15 @@ function selCli(id, cid, required){
   renderClienteSelector(cid,required);
   setTimeout(()=>{ if(cid==='cliSelMov'){refreshMovObraChips();const inp=document.getElementById('movObraInput');if(inp)inp.value='';} },50);
 }
+let _pendingCliName='', _pendingCliCid='', _pendingCliRequired=true;
+let _pendingParentSheet=null;
+
 async function crearYSelCli(nombre, cid, required){
   if(!nombre.trim()){toast('Escribe el nombre del cliente');return;}
   // abrir mini-form para completar datos
   _pendingCliName=nombre.trim(); _pendingCliCid=cid; _pendingCliRequired=required;
   showSheet('sNuevoCliRapido');
 }
-let _pendingCliName='', _pendingCliCid='', _pendingCliRequired=true;
 
 SHEETS.sNuevoCliRapido=()=>`
   <div class="sh"><h3>➕ Nuevo Cliente</h3><button class="x" onclick="closeSheet()">✕</button></div>
