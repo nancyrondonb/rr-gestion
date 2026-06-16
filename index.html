@@ -630,8 +630,10 @@ function renderClienteSelector(containerId, required=true){
   if(!cont) return;
 
   if(_selCli){
-    // ── Cliente seleccionado: mostrar tag + obras ──
+    // ── Cliente seleccionado: mostrar tag ──
     const obras = S.obr.filter(ob=>ob.clienteId===_selCli.id);
+    // Para movimientos: solo el tag del cliente (la obra está en bloque separado)
+    const esMov = containerId==='cliSelMov';
     cont.innerHTML=`
       <div class="f">
         <label>Cliente${required?'<span class="req">*</span>':''}</label>
@@ -643,11 +645,12 @@ function renderClienteSelector(containerId, required=true){
           <button class="change" onclick="clearClienteSel('${containerId}',${required})">Cambiar</button>
         </div>
       </div>
+      ${!esMov?`
       <div class="f">
         <div class="obra-wrap">
           <div class="obra-title">Obra / Proyecto <span class="req">*</span></div>
           <div class="obra-opts" id="obraOpts_${containerId}">
-            ${obras.map(ob=>`<button class="obra-chip${_selObra&&_selObra.id===ob.id?' sel':''}" onclick="selObra('${ob.id}','${esc(ob.nombre)}','${containerId}')">${esc(ob.nombre)}</button>`).join('')}
+            ${obras.map(ob=>{const sel=_selObra&&_selObra.id===ob.id?' sel':'';const nm=esc(ob.nombre).replace(/'/g,'&#39;');return '<button class="obra-chip'+sel+'" onclick="selObra(\''+ob.id+'\',\''+nm+'\',\''+containerId+'\')">'+esc(ob.nombre)+'</button>';}).join('')}
             <button class="obra-chip new" onclick="nuevaObraInline('${containerId}')">+ Nueva obra</button>
           </div>
           <input type="text" id="obraInput_${containerId}"
@@ -656,7 +659,9 @@ function renderClienteSelector(containerId, required=true){
             style="display:${obras.length===0?'block':'none'};margin-top:6px"
             oninput="obraInputChange(this,'${containerId}')">
         </div>
-      </div>`;
+      </div>`:''}`;
+    // Si es movimiento, refrescar los chips de obra en el bloque separado
+    if(esMov) setTimeout(refreshMovObraChips, 50);
   } else {
     // ── Sin cliente: mostrar búsqueda ──
     cont.innerHTML=`
