@@ -1384,60 +1384,121 @@ SHEETS.sSync=()=>{ const c=S.cfg; return`
     <button class="btn btn-pr" onclick="guardarSync()">💾 Guardar URL</button>
   </div>`;};
 
-// Verificar conexión con GET (evita problema CORS)
 async function testSync(){
-  const url=(document.getElementById('syncUrl')?.value||S.cfg.syncUrl||'').trim();
-  const res=document.getElementById('syncTestResult');
-  if(!url){if(res)res.innerHTML='<div class="ibox ibox-red">Falta la URL</div>';return;}
-  if(res)res.innerHTML='<div class="ibox ibox-blue">Verificando...</div>';
-  try{
-    // GET directo (Apps Script doGet devuelve texto plano, no tiene CORS issue)
-    const r=await fetch(url,{method:'GET',mode:'cors'});
-    const text=await r.text();
-    if(res)res.innerHTML=`<div class="ibox ibox-green">✅ Conexión OK<br><small>${text.slice(0,80)}</small></div>`;
-  }catch(e){
-    // CORS block en GET es normal con no-cors, intentar no-cors
-    try{
-      await fetch(url,{method:'GET',mode:'no-cors'});
-      if(res)res.innerHTML='<div class="ibox ibox-green">✅ URL alcanzable (CORS restringido, pero funciona para enviar datos)</div>';
-    }catch(e2){
-      if(res)res.innerHTML=`<div class="ibox ibox-red">❌ No se pudo conectar: ${e2.message}</div>`;
+  const url = (document.getElementById('syncUrl')?.value || S.cfg.syncUrl || '').trim();
+  const res = document.getElementById('syncTestResult');
+  if(!url){ if(res) res.innerHTML='<div class="ibox ibox-red">⚠️ Falta la URL</div>'; return; }
+  if(res) res.innerHTML = '<div class="ibox ibox-blue">🔄 Verificando conexión...</div>';
+  try {
+    const r = await fetch(url + '?action=ping', { method:'GET', mode:'cors' });
+    const data = await r.json();
+    if(data.ok){
+      const reg = data.registros || {};
+      const total = Object.values(reg).reduce((s,n)=>s+n,0);
+      if(res) res.innerHTML = '<div class="ibox ibox-green">✅ Conexión OK · '+(data.fecha||'')+
+        '<br><small>📊 Sheet tiene: '+
+        (reg.clientes||0)+' clientes, '+(reg.cotizaciones||0)+' cot., '+
+        (reg.movimientos||0)+' mov. ('+total+' registros total)</small></div>';
+    } else {
+      throw new Error(data.msg || 'Respuesta inválida');
     }
+  } catch(e) {
+    if(res) res.innerHTML = '<div class="ibox ibox-red">❌ '+e.message+
+      '<br><small>💡 Asegúrate de usar el script v3 y que "Quién tiene acceso" sea "Cualquier persona"</small></div>';
   }
 }
 function abrirSync(){ showSheet('sSync'); }
 async function guardarSync(){ S.cfg.syncUrl=document.getElementById('syncUrl').value.trim(); S.cfg.syncEnabled=document.getElementById('syncOn').checked; await window.storage.set(KEYS.CFG,JSON.stringify(S.cfg)); closeSheet(); toast(S.cfg.syncEnabled?'Sync activada ✓':'Guardado'); updateSyncDot(); renderDatos(); }
 async function syncTodo(){
-  const urlEl=document.getElementById('syncUrl');
-  if(urlEl) S.cfg.syncUrl=urlEl.value.trim();
-  const onEl=document.getElementById('syncOn');
-  if(onEl) S.cfg.syncEnabled=onEl.checked;
-  if(!S.cfg.syncUrl){toast('⚠️ Pega primero la URL del Apps Script');return;}
-  const res=document.getElementById('syncTestResult');
-  if(res)res.innerHTML='<div class="ibox ibox-blue">⏳ Enviando datos al Sheet...</div>';
-  toast('Enviando datos...');
-  try{
-    const payload={
-      clientes:S.cli, cotizaciones:S.cot, cuentas_cobro:S.cc,
-      materiales:S.mat, proveedores:S.prov,
-      movimientos:S.mov, obras:S.obr
-    };
-    await fetch(S.cfg.syncUrl,{
-      method:'POST', mode:'no-cors',
-      headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'sync_all', payload})
+  const urlEl = document.getElementById('syncUrl');
+  if(urlEl) S.cfg.syncUrl = urlEl.value.trim();
+  const onEl = document.getElementById('syncOn');
+  if(onEl) S.cfg.syncEnabled = onEl.checked;
+  const url = S.cfg.syncUrl;
+  if(!url){ toast('⚠️ Pega primero la URL del Apps Script'); return; }
+  const res = document.getElementById('syncTestResult');
+  if(res) res.innerHTML = '<div class="ibox ibox-blue">⏳ Enviando todos los datos...</div>';
+  toast('Sincronizando...');
+  const payload = {
+    clientes: S.cli, obras: S.obr,
+    cotizaciones: S.cot, cuentas_cobro: S.cc,
+    materiales: S.mat, proveedores: S.prov, movimientos: S.mov
+  };
+  const body = JSON.stringify({ action: 'sync_all', payload });
+  try {
+    // Intento 1: con CORS (Apps Script v3 lo soporta)
+    const r = await fetch(url, {
+      method: 'POST', mode: 'cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body
     });
-    S.cfg.lastSync=Date.now();
-    await window.storage.set(KEYS.CFG,JSON.stringify(S.cfg));
-    updateSyncDot();
-    if(res)res.innerHTML='<div class="ibox ibox-green">✅ Datos enviados correctamente<br><small>'+new Date().toLocaleString('es-CO')+'</small></div>';
-    toast('✅ Sincronizado con Google Sheets');
-  }catch(e){
-    if(res)res.innerHTML='<div class="ibox ibox-red">❌ Error: '+e.message+'<br><small>Verifica que la URL sea correcta y termine en /exec</small></div>';
-    toast('❌ Error al sincronizar');
+    const data = await r.json();
+    if(data.ok){
+      S.cfg.lastSync = Date.now();
+      await window.storage.set(KEYS.CFG, JSON.stringify(S.cfg));
+      updateSyncDot();
+      const total = Object.values(data.results||{}).reduce((s,n)=>s+n,0);
+      if(res) res.innerHTML = '<div class="ibox ibox-green">✅ Sincronizado correctamente<br><small>'+total+' registros · '+new Date().toLocaleString('es-CO')+'</small></div>';
+      toast('✅ Sheet actualizado');
+    } else {
+      throw new Error(data.error || 'Error del servidor');
+    }
+  } catch(e1) {
+    // Intento 2: fallback no-cors (versión anterior del script)
+    try {
+      await fetch(url, { method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain'}, body });
+      S.cfg.lastSync = Date.now();
+      await window.storage.set(KEYS.CFG, JSON.stringify(S.cfg));
+      updateSyncDot();
+      if(res) res.innerHTML = '<div class="ibox ibox-green">✅ Enviado (modo compatibilidad)<br><small>'+new Date().toLocaleString('es-CO')+'</small></div>';
+      toast('✅ Datos enviados');
+    } catch(e2) {
+      if(res) res.innerHTML = '<div class="ibox ibox-red">❌ Error: '+e2.message+'<br><small>Verifica la URL y que termine en /exec</small></div>';
+      toast('❌ No se pudo sincronizar');
+    }
   }
 }
-function autoSync(k,v){ if(!S.cfg?.syncEnabled||!S.cfg?.syncUrl)return; const TAB={[KEYS.CLI]:'clientes',[KEYS.COT]:'cotizaciones',[KEYS.CC]:'cuentas_cobro',[KEYS.MAT]:'materiales',[KEYS.PROV]:'proveedores',[KEYS.MOV]:'movimientos',[KEYS.OBR]:'obras'}; const tab=TAB[k]; if(!tab)return; fetch(S.cfg.syncUrl,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'sync_tab',tab,records:v})}).then(()=>{S.cfg.lastSync=Date.now();window.storage.set(KEYS.CFG,JSON.stringify(S.cfg)).catch(()=>{});updateSyncDot();}).catch(()=>{}); }
+// Mapeo de key de storage → pestaña del Sheet
+const KEY_TAB = {
+  [KEYS.CLI]:'clientes', [KEYS.COT]:'cotizaciones', [KEYS.CC]:'cuentas_cobro',
+  [KEYS.MAT]:'materiales', [KEYS.PROV]:'proveedores',
+  [KEYS.MOV]:'movimientos', [KEYS.OBR]:'obras'
+};
+
+// autoSync: se llama después de cada DB.set
+// Envía el array completo de esa pestaña (sync_all por tab)
+function autoSync(k, v){
+  if(!S.cfg?.syncEnabled || !S.cfg?.syncUrl) return;
+  const tab = KEY_TAB[k];
+  if(!tab) return;
+  const url = S.cfg.syncUrl;
+  fetch(url, {
+    method: 'POST',
+    mode: 'cors',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ action: 'sync_all', payload: { [tab]: v } })
+  })
+  .then(r => r.ok ? r.json() : Promise.reject(r.status))
+  .then(data => {
+    if(data.ok){
+      S.cfg.lastSync = Date.now();
+      window.storage.set(KEYS.CFG, JSON.stringify(S.cfg)).catch(()=>{});
+      updateSyncDot();
+    }
+  })
+  .catch(err => {
+    // Si falla CORS, intentar con no-cors como fallback silencioso
+    fetch(url, {
+      method: 'POST', mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'sync_all', payload: { [tab]: v } })
+    }).then(()=>{
+      S.cfg.lastSync = Date.now();
+      window.storage.set(KEYS.CFG, JSON.stringify(S.cfg)).catch(()=>{});
+      updateSyncDot();
+    }).catch(()=>{});
+  });
+}
 function updateSyncDot(){ const el=document.getElementById('syncDot'); if(!el)return; el.textContent=S.cfg?.syncEnabled&&S.cfg?.syncUrl?'🟢':''; }
 
 // ===== MENU =====
