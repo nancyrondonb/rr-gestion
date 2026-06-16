@@ -890,11 +890,23 @@ async function guardarNuevoCli(){
   const c={id:uid(),nombre,nit,tipoDoc:tipoDoc2,cel:document.getElementById('ncCel').value.trim(),email:document.getElementById('ncEmail').value.trim(),direccion:document.getElementById('ncDir').value.trim(),creadoEn:Date.now()};
   S.cli.push(c);
   await DB.set(KEYS.CLI,S.cli);
-  _selCli={id:c.id,nombre:c.nombre,nit:c.nit,cel:c.cel};
+  _selCli={id:c.id,nombre:c.nombre,nit:c.nit||'',cel:c.cel||'',tipoDoc:tipoDoc2};
   _selObra=null;
-  closeSheet();
   toast('Cliente guardado ✓');
-  setTimeout(()=>renderClienteSelector(_pendingCliCid,_pendingCliRequired),100);
+  // Volver al formulario padre (cotización, cobro o movimiento)
+  if(_pendingParentSheet==='sCotizacion'){
+    showSheet('sCotizacion');
+    setTimeout(()=>{ renderClienteSelector('cliSelCot',true); renderSecsCot(); },80);
+  } else if(_pendingParentSheet==='sCuentaCobro'){
+    showSheet('sCuentaCobro');
+    setTimeout(()=>{ renderClienteSelector('cliSelCC',true); setTimeout(ccPreviewLetras,150); },80);
+  } else if(_pendingParentSheet==='sMovimiento'){
+    showSheet('sMovimiento');
+    setTimeout(()=>{ renderClienteSelector('cliSelMov',false); },80);
+  } else {
+    closeSheet();
+    setTimeout(()=>renderClienteSelector(_pendingCliCid,_pendingCliRequired),100);
+  }
 }
 
 function clearClienteSel(cid,required){ _selCli=null; _selObra=null; renderClienteSelector(cid,required); }
@@ -1040,6 +1052,36 @@ function buildVariosChecks(selected){
     return '<label style="display:flex;align-items:center;gap:5px;background:'+(ch?'#DBEAFE':'#F3F4F6')+';padding:5px 10px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:600;border:1.5px solid '+(ch?'#3B82F6':'#E5E7EB')+'"><input type="checkbox" '+(ch?'checked':'')+ ' value="'+item+'" onchange="toggleVarios(this)" style="accent-color:#1565C0">'+item+'</label>';
   }).join('');
 }
+function toggleAccesorios(){
+  const panel=document.getElementById('accesoriosPanel');
+  const arrow=document.getElementById('accesoriosArrow');
+  if(!panel)return;
+  const open=panel.style.display==='block';
+  panel.style.display=open?'none':'block';
+  if(arrow)arrow.style.transform=open?'':'rotate(180deg)';
+}
+function toggleVariosMat(){
+  const panel=document.getElementById('variosPanel');
+  const arrow=document.getElementById('variosArrow');
+  if(!panel)return;
+  const open=panel.style.display==='block';
+  panel.style.display=open?'none':'block';
+  if(arrow)arrow.style.transform=open?'':'rotate(180deg)';
+}
+function buildAccesoriosChecks(selected){
+  const items=['Bisagras','Chapas','Pasadores','Manijas','Candados','Aldabas',
+               'Tornillos','Remaches','Pernos','Tuercas','Arandelas','Varillas de unión'];
+  return items.map(item=>{
+    const ch=selected.includes(item);
+    return '<label style="display:flex;align-items:center;gap:5px;background:'+(ch?'#FEF3C7':'#F3F4F6')+';padding:5px 10px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:600;border:1.5px solid '+(ch?'#F59E0B':'#E5E7EB')+'"><input type="checkbox" '+(ch?'checked':'')+ ' value="'+item+'" onchange="toggleAccesorio(this)" style="accent-color:#F59E0B">'+item+'</label>';
+  }).join('');
+}
+function toggleAccesorio(cb){
+  if(!_editCot) return;
+  if(!_editCot.accesorios) _editCot.accesorios=[];
+  if(cb.checked){ if(!_editCot.accesorios.includes(cb.value)) _editCot.accesorios.push(cb.value); cb.parentElement.style.background='#FEF3C7'; cb.parentElement.style.borderColor='#F59E0B'; }
+  else { _editCot.accesorios=_editCot.accesorios.filter(x=>x!==cb.value); cb.parentElement.style.background='#F3F4F6'; cb.parentElement.style.borderColor='#E5E7EB'; }
+}
 function toggleVarios(cb){
   if(!_editCot) return;
   if(!_editCot.variosItems) _editCot.variosItems=[];
@@ -1055,18 +1097,37 @@ SHEETS.sCotizacion=()=>`
       <div class="f"><label>Fecha</label><input id="cotFecha" type="date" value="${_editCot?.fecha||hoy()}"></div>
     </div>
     <div id="cliSelCot"></div>
-    <div class="f"><label>Descripción / Título de la cotización</label><input id="cotObra" type="text" value="${esc(_editCot?.obra||'')}" placeholder="Ej: Estructura techo bodega Caicedo"></div>
+
     <div style="display:flex;justify-content:space-between;align-items:center;margin:13px 0 7px">
       <strong style="font-size:13px">Trabajos / Secciones</strong>
       <button class="btn btn-gh btn-sm" onclick="cotAddSec()" style="flex:0 0 auto">+ Sección</button>
     </div>
     <div id="cotSecs"></div>
+    <!-- ACCESORIOS desplegable -->
     <div class="f" style="margin-top:12px">
-      <label>Materiales varios (marca los que apliquen)</label>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" id="variosChecks">
-        ${buildVariosChecks(_editCot?.variosItems||[])}
+      <div onclick="toggleAccesorios()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:10px 12px;background:#F0F4F8;border-radius:10px;border:1.5px solid var(--bdr)">
+        <span style="font-size:13px;font-weight:700">🔩 Accesorios</span>
+        <span id="accesoriosArrow" style="font-size:18px;transition:transform .2s">▼</span>
       </div>
-      <textarea id="cotVarios" rows="2" placeholder="Otros materiales adicionales…">${esc(_editCot?.varios||'')}</textarea>
+      <div id="accesoriosPanel" style="display:none;padding:10px;border:1.5px solid var(--bdr);border-top:none;border-radius:0 0 10px 10px;background:#FAFCFF">
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px" id="accesoriosChecks">
+          ${buildAccesoriosChecks(_editCot?.accesorios||[])}
+        </div>
+        <input type="text" id="accesoriosExtra" placeholder="Otros accesorios…" value="${esc((_editCot?.accesoriosExtra||''))}" style="width:100%;padding:8px 10px;border:1.5px solid var(--bdr);border-radius:8px;font-size:13px;margin-top:4px">
+      </div>
+    </div>
+    <!-- MATERIALES VARIOS desplegable -->
+    <div class="f" style="margin-top:8px">
+      <div onclick="toggleVariosMat()" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:10px 12px;background:#F0F4F8;border-radius:10px;border:1.5px solid var(--bdr)">
+        <span style="font-size:13px;font-weight:700">🎨 Materiales varios</span>
+        <span id="variosArrow" style="font-size:18px;transition:transform .2s">▼</span>
+      </div>
+      <div id="variosPanel" style="display:none;padding:10px;border:1.5px solid var(--bdr);border-top:none;border-radius:0 0 10px 10px;background:#FAFCFF">
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px" id="variosChecks">
+          ${buildVariosChecks(_editCot?.variosItems||[])}
+        </div>
+        <textarea id="cotVarios" rows="2" placeholder="Otros materiales adicionales…">${esc(_editCot?.varios||'')}</textarea>
+      </div>
     </div>
     <div class="r2">
       <div class="f"><label>Tiempo de entrega</label><input id="cotTiempo" value="${esc(_editCot?.tiempoEntrega||'')}"></div>
@@ -1143,9 +1204,11 @@ async function guardarCot(){
     fecha:document.getElementById('cotFecha').value,
     cliente:{id:_selCli.id,nombre:_selCli.nombre,nit:_selCli.nit,cel:_selCli.cel},
     clienteId:_selCli.id,
-    obra:document.getElementById('cotObra').value.trim()||_selObra.nombre,
+    obra:_selObra?.nombre||'',
     obraId:obra?.id||null, obraNombre:obra?.nombre||_selObra.nombre,
     secciones:_editCot.secciones.filter(s=>s.titulo||s.precio>0),
+    accesorios:Array.from(document.querySelectorAll('#accesoriosChecks input:checked')).map(c=>c.value),
+    accesoriosExtra:document.getElementById('accesoriosExtra')?.value?.trim()||'',
     variosItems:Array.from(document.querySelectorAll('#variosChecks input:checked')).map(c=>c.value),
     varios:document.getElementById('cotVarios').value.trim(),
     observaciones:document.getElementById('cotObs').value.trim(),
@@ -1501,8 +1564,33 @@ SHEETS.sSync=()=>{ const c=S.cfg; return`
 function abrirSync(){ showSheet('sSync'); }
 async function guardarSync(){ S.cfg.syncUrl=document.getElementById('syncUrl').value.trim(); S.cfg.syncEnabled=document.getElementById('syncOn').checked; await window.storage.set(KEYS.CFG,JSON.stringify(S.cfg)); closeSheet(); toast(S.cfg.syncEnabled?'Sync activada ✓':'Guardado'); updateSyncDot(); renderDatos(); }
 async function syncTodo(){ S.cfg.syncUrl=(document.getElementById('syncUrl')?.value||S.cfg.syncUrl).trim(); S.cfg.syncEnabled=document.getElementById('syncOn')?.checked??S.cfg.syncEnabled; if(!S.cfg.syncUrl){toast('Falta la URL');return;} toast('Enviando datos...'); try{ await fetch(S.cfg.syncUrl,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'sync_all',payload:{clientes:S.cli,cotizaciones:S.cot,cuentas_cobro:S.cc,materiales:S.mat,proveedores:S.prov,movimientos:S.mov,obras:S.obr}}) }); S.cfg.lastSync=Date.now(); await window.storage.set(KEYS.CFG,JSON.stringify(S.cfg)); updateSyncDot(); toast('✓ Datos enviados a Google Sheets'); }catch(e){toast('Error: '+e.message);} }
-function autoSync(k,v){ if(!S.cfg?.syncEnabled||!S.cfg?.syncUrl)return; const TAB={[KEYS.CLI]:'clientes',[KEYS.COT]:'cotizaciones',[KEYS.CC]:'cuentas_cobro',[KEYS.MAT]:'materiales',[KEYS.PROV]:'proveedores',[KEYS.MOV]:'movimientos',[KEYS.OBR]:'obras'}; const tab=TAB[k]; if(!tab)return; fetch(S.cfg.syncUrl,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'sync_tab',tab,records:v})}).then(()=>{S.cfg.lastSync=Date.now();window.storage.set(KEYS.CFG,JSON.stringify(S.cfg)).catch(()=>{});updateSyncDot();}).catch(()=>{}); }
-function updateSyncDot(){ const el=document.getElementById('syncDot'); if(!el)return; el.textContent=S.cfg?.syncEnabled&&S.cfg?.syncUrl?'🟢':''; }
+function autoSync(k,v){
+  if(!S.cfg?.syncEnabled||!S.cfg?.syncUrl) return;
+  const TAB={[KEYS.CLI]:'clientes',[KEYS.COT]:'cotizaciones',[KEYS.CC]:'cuentas_cobro',
+    [KEYS.MAT]:'materiales',[KEYS.PROV]:'proveedores',[KEYS.MOV]:'movimientos',
+    [KEYS.OBR]:'obras',[KEYS.NOM]:'nomina'};
+  const tab=TAB[k]; if(!tab) return;
+  const url=S.cfg.syncUrl.trim();
+  const body=JSON.stringify({action:'sync_tab', tab, records:Array.isArray(v)?v:[v]});
+  const doFetch=(mode)=>fetch(url,{method:'POST',mode,headers:{'Content-Type':'text/plain'},body});
+  doFetch('cors')
+    .then(r=>{ if(r.ok) return r.json(); throw new Error('HTTP '+r.status); })
+    .then(d=>{ if(d.ok){ S.cfg.lastSync=Date.now(); window.storage.set(KEYS.CFG,JSON.stringify(S.cfg)).catch(()=>{}); updateSyncDot(); } })
+    .catch(()=>{
+      doFetch('no-cors')
+        .then(()=>{ S.cfg.lastSync=Date.now(); window.storage.set(KEYS.CFG,JSON.stringify(S.cfg)).catch(()=>{}); updateSyncDot(); })
+        .catch(()=>updateSyncDot('error'));
+    });
+}
+function updateSyncDot(status){
+  const el=document.getElementById('syncDot'); if(!el)return;
+  if(status==='error'){ el.textContent='🔴'; el.title='Error al sincronizar'; return; }
+  if(S.cfg?.syncEnabled&&S.cfg?.syncUrl){
+    const min=S.cfg.lastSync?Math.floor((Date.now()-S.cfg.lastSync)/60000):-1;
+    el.textContent=min<0?'🟡':(min<5?'🟢':'🟡');
+    el.title='Última sync: '+(S.cfg.lastSync?new Date(S.cfg.lastSync).toLocaleString('es-CO'):'Nunca');
+  } else { el.textContent=''; el.title=''; }
+}
 
 // ===== MENU =====
 SHEETS.sMenu=()=>`
@@ -1543,7 +1631,9 @@ function pdfCot(id){
     (s.items||[]).forEach(it=>rows.push([{content:String(it.cant||''),styles:{halign:'center'}},it.desc||'','','']));
   });
   const todosVarios=[...(c.variosItems||[]),...(c.varios?[c.varios]:[])].join(', ');
-  if(todosVarios)rows.push([{content:'Varios: '+todosVarios,colSpan:4,styles:{fontStyle:'italic',textColor:[100,100,100]}}]);
+  if(todosVarios)rows.push([{content:'Materiales varios: '+todosVarios,colSpan:4,styles:{fontStyle:'italic',textColor:[100,100,100]}}]);
+  const todosAcc=[...(c.accesorios||[]),...(c.accesoriosExtra?[c.accesoriosExtra]:[])].join(', ');
+  if(todosAcc)rows.push([{content:'Accesorios: '+todosAcc,colSpan:4,styles:{fontStyle:'italic',textColor:[100,100,100]}}]);
   rows.push([{content:'',styles:{fillColor:[255,255,255]}},{content:'',styles:{fillColor:[255,255,255]}},{content:'Total:',styles:{fontStyle:'bold',halign:'right',fillColor:[230,238,247]}},{content:fmtCOP(c.total),styles:{fontStyle:'bold',halign:'right',fillColor:[230,238,247],textColor:[13,71,161]}}]);
   if(c.anticipo>0){
     rows.push([{content:'',styles:{fillColor:[255,255,255]}},{content:'',styles:{fillColor:[255,255,255]}},{content:'Anticipo:',styles:{fontStyle:'bold',halign:'right',fillColor:[255,249,230]}},{content:'- '+fmtCOP(c.anticipo),styles:{fontStyle:'bold',halign:'right',fillColor:[255,249,230],textColor:[180,100,0]}}]);
