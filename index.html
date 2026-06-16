@@ -101,8 +101,8 @@ main{flex:1;overflow-y:auto;padding-bottom:85px;-webkit-overflow-scrolling:touch
 
 /* BOTTOM NAV */
 .bnav{position:fixed;bottom:0;left:0;right:0;background:#fff;display:flex;border-top:1px solid var(--bdr);padding:5px 2px;padding-bottom:max(5px,env(safe-area-inset-bottom));z-index:8;max-width:520px;margin:0 auto}
-.nbtn{flex:1;background:none;border:none;padding:7px 2px;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;color:var(--muted);font-family:inherit;font-size:10px;font-weight:600;border-radius:8px}
-.nbtn .ic{font-size:20px;line-height:1}
+.nbtn{flex:1;background:none;border:none;padding:6px 1px;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;color:var(--muted);font-family:inherit;font-size:9px;font-weight:600;border-radius:8px}
+.nbtn .ic{font-size:18px;line-height:1}
 .nbtn.active{color:var(--pr)}
 
 /* SHEET */
@@ -299,7 +299,12 @@ main{flex:1;overflow-y:auto;padding-bottom:85px;-webkit-overflow-scrolling:touch
         <div class="stat gas"><div class="lbl">Gastos totales</div><div class="val" id="movTotGas">$ 0</div></div>
         <div class="stat bal full"><div class="lbl">Balance</div><div class="val" id="movTotBal">$ 0</div></div>
       </div>
-      <div class="tabs">
+      <div class="tabs" style="margin-bottom:6px">
+        <button class="active" onclick="setCuentasVista('movimientos',this)">📋 Movimientos</button>
+        <button onclick="setCuentasVista('porObra',this)">🏗️ Por Obra</button>
+        <button onclick="setCuentasVista('porDia',this)">📅 Por Día</button>
+      </div>
+      <div class="tabs" id="tabsMovTipo">
         <button class="active" onclick="setMovTab('todos',this)">Todos</button>
         <button onclick="setMovTab('ingreso',this)">Ingresos</button>
         <button onclick="setMovTab('gasto',this)">Gastos</button>
@@ -311,6 +316,17 @@ main{flex:1;overflow-y:auto;padding-bottom:85px;-webkit-overflow-scrolling:touch
         <button class="chip" onclick="setMovMP('bancolombia',this)">🏦 Bancolombia</button>
       </div>
       <div id="listaMov"></div>
+    </div>
+
+    <!-- NÓMINA -->
+    <div class="view" id="v-nomina">
+      <div class="lhdr"><h2>👷 Nómina</h2></div>
+      <div class="tabs">
+        <button class="active" onclick="setNomTab('pagos',this)">💸 Pagos</button>
+        <button onclick="setNomTab('trabajadores',this)">👤 Trabajadores</button>
+        <button onclick="setNomTab('resumen',this)">📊 Resumen</button>
+      </div>
+      <div id="nomContent"></div>
     </div>
 
     <!-- DATOS -->
@@ -356,6 +372,7 @@ main{flex:1;overflow-y:auto;padding-bottom:85px;-webkit-overflow-scrolling:touch
     <button class="nbtn" onclick="navTo('cotizar',this)"><span class="ic">📋</span><span>Cotizar</span></button>
     <button class="nbtn" onclick="navTo('cobrar',this)"><span class="ic">💰</span><span>Cobrar</span></button>
     <button class="nbtn" onclick="navTo('cuentas',this)"><span class="ic">📊</span><span>Cuentas</span></button>
+    <button class="nbtn" onclick="navTo('nomina',this)"><span class="ic">👷</span><span>Nómina</span></button>
   </nav>
 </div>
 
@@ -372,8 +389,16 @@ const FIRMA_SIG = "iVBORw0KGgoAAAANSUhEUgAAAV4AAABQCAYAAABRVh3eAABHsUlEQVR42u29e
 const KEYS = {
   CFG:'rr_cfg2', COT:'rr_cot2', CC:'rr_cc2',
   CLI:'rr_cli2', MAT:'rr_mat2', PROV:'rr_prov2',
-  MOV:'rr_mov2', OBR:'rr_obr2', CNT:'rr_cnt2'
+  MOV:'rr_mov2', OBR:'rr_obr2', CNT:'rr_cnt2',
+  NOM:'rr_nom2', TRB:'rr_trb2'
 };
+
+// Trabajadores por defecto
+const DEF_TRABAJADORES = [
+  {id:'trb1', nombre:'Arturo Rojas',       tipo:'planta',      cargo:'Ornamentador', salarioBase:0, activo:true},
+  {id:'trb2', nombre:'Mallerly Rondón',    tipo:'planta',      cargo:'Administración', salarioBase:0, activo:true},
+  {id:'trb3', nombre:'José Darío Rondón', tipo:'planta',      cargo:'Ornamentador', salarioBase:0, activo:true},
+];
 
 const DEF_CFG = {
   taller:'Taller Ornamentación RR', nit:'1123209337-3',
@@ -385,12 +410,19 @@ const DEF_CFG = {
   syncUrl:'', syncEnabled:false, lastSync:0
 };
 
-let S = { cfg:null, cot:[], cc:[], cli:[], mat:[], prov:[], mov:[], obr:[], cnt:{cot:58,cc:70} };
+let S = { cfg:null, cot:[], cc:[], cli:[], mat:[], prov:[], mov:[], obr:[], cnt:{cot:58,cc:70}, nom:[], trb:[] };
 
 // ===== STORAGE =====
 const DB = {
   async get(k,d=null){ try{ const r=await window.storage.get(k); return r?JSON.parse(r.value):d; }catch(e){return d;} },
-  async set(k,v){ try{ await window.storage.set(k,JSON.stringify(v)); autoSync(k,v); return true; }catch(e){toast('❌ Error guardando');return false;} }
+  async set(k,v){
+    try{
+      await window.storage.set(k,JSON.stringify(v));
+      // Sync inmediato
+      autoSync(k,v);
+      return true;
+    }catch(e){ toast('❌ Error guardando'); return false; }
+  }
 };
 
 async function loadAll(){
@@ -403,6 +435,8 @@ async function loadAll(){
   S.mov  = await DB.get(KEYS.MOV, []);
   S.obr  = await DB.get(KEYS.OBR, []);
   S.cnt  = await DB.get(KEYS.CNT, {cot:58,cc:70});
+  S.nom  = await DB.get(KEYS.NOM, []);
+  S.trb  = await DB.get(KEYS.TRB, DEF_TRABAJADORES);
 }
 
 // ===== UTILS =====
@@ -445,7 +479,7 @@ function navTo(view, btn){
   if(btn)btn.classList.add('active');
   document.querySelector('main').scrollTop=0;
   const fab=document.getElementById('fab');
-  if(view==='cotizar'||view==='cobrar'||view==='cuentas'||view==='clientes'){
+  if(['cotizar','cobrar','cuentas','clientes','nomina'].includes(view)){
     fab.style.display='flex'; fab.dataset.v=view;
   } else fab.style.display='none';
   renderView(view);
@@ -456,6 +490,7 @@ function fabAction(){
   else if(v==='cobrar')nuevaCuentaCobro();
   else if(v==='cuentas')showSheet('sTipoMov');
   else if(v==='clientes')showSheet('sEditCli');
+  else if(v==='nomina')showSheet('sNuevoPago');
 }
 
 function renderView(v){
@@ -465,6 +500,7 @@ function renderView(v){
   else if(v==='cobrar')renderCuentasCobro();
   else if(v==='cuentas')renderMovimientos();
   else if(v==='datos')renderDatos();
+  else if(v==='nomina')renderNomina();
 }
 function renderAll(){ renderView(_curView); }
 
@@ -560,16 +596,93 @@ function renderCuentasCobro(){
 let _movTipo='todos', _movMP='todos';
 function setMovTab(t,btn){ _movTipo=t; document.querySelectorAll('#v-cuentas .tabs button').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); renderMovimientos(); }
 function setMovMP(mp,btn){ _movMP=mp; document.querySelectorAll('#chipsMP .chip').forEach(b=>b.classList.remove('sel')); btn.classList.add('sel'); renderMovimientos(); }
+// ===== VISTA CUENTAS MEJORADA =====
+let _cuentasVista = 'movimientos'; // 'movimientos' | 'porObra' | 'porDia'
+function setCuentasVista(v, btn){
+  _cuentasVista=v;
+  document.querySelectorAll('#v-cuentas .tabs button').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  renderMovimientos();
+}
+
 function renderMovimientos(){
   let ing=0,gas=0;
   S.mov.forEach(m=>{ if(m.tipo==='ingreso')ing+=m.monto; else gas+=m.monto; });
   document.getElementById('movTotIng').textContent=fmtCOP(ing);
   document.getElementById('movTotGas').textContent=fmtCOP(gas);
   document.getElementById('movTotBal').textContent=fmtCOP(ing-gas);
+  // Ocultar/mostrar filtros según vista
+  const tabsTipo=document.getElementById('tabsMovTipo');
+  const chipsMP=document.getElementById('chipsMP');
+  if(tabsTipo) tabsTipo.style.display=_cuentasVista==='movimientos'?'flex':'none';
+  if(chipsMP) chipsMP.style.display=_cuentasVista==='movimientos'?'flex':'none';
+
   let list=S.mov.slice().reverse();
   if(_movTipo!=='todos')list=list.filter(m=>m.tipo===_movTipo);
   if(_movMP!=='todos')list=list.filter(m=>m.metodoPago===_movMP);
   const cont=document.getElementById('listaMov');
+
+  // Vista Por Obra
+  if(_cuentasVista==='porObra'){
+    const obras={};
+    S.mov.forEach(m=>{
+      const k=m.obraNombre||(m.clienteNombre?'['+m.clienteNombre+'] Sin obra':'Sin obra/cliente');
+      if(!obras[k]) obras[k]={ing:0,gas:0,movs:[]};
+      if(m.tipo==='ingreso') obras[k].ing+=m.monto;
+      else obras[k].gas+=m.monto;
+      obras[k].movs.push(m);
+    });
+    if(!Object.keys(obras).length){cont.innerHTML='<div class="empty"><div class="ic">🏗️</div><p>Sin movimientos por obra</p></div>';return;}
+    cont.innerHTML=Object.entries(obras).sort((a,b)=>b[1].ing+b[1].gas-(a[1].ing+a[1].gas)).map(([obra,d])=>`
+      <div class="card cl-blue" onclick="toggleObraMovs('${esc(obra).replace(/'/g,"\\'")}')">
+        <div class="crow">
+          <div><div class="nm">🏗️ ${esc(obra)}</div>
+            <div class="meta">${d.movs.length} movimientos</div></div>
+          <div>
+            <div style="color:var(--ok);font-weight:700;font-size:13px;text-align:right">+${fmtCOP(d.ing)}</div>
+            <div style="color:var(--er);font-weight:700;font-size:13px;text-align:right">-${fmtCOP(d.gas)}</div>
+            <div style="color:var(--pr);font-weight:700;font-size:12px;text-align:right">=${fmtCOP(d.ing-d.gas)}</div>
+          </div>
+        </div>
+        <div id="obraMovs_${esc(obra).replace(/[^a-z0-9]/gi,'_')}" style="display:none;margin-top:8px">
+          ${d.movs.map(m=>`<div style="padding:6px 0;border-top:1px solid #F3F4F6;display:flex;justify-content:space-between;font-size:12px" onclick="event.stopPropagation();verMovimiento('${m.id}')">
+            <span>${esc(m.descripcion)} <span style="color:var(--muted)">${fechaCort(m.fecha)}</span></span>
+            <span style="color:var(--${m.tipo==='ingreso'?'ok':'er'});font-weight:700">${m.tipo==='ingreso'?'+':'-'}${fmtCOP(m.monto)}</span>
+          </div>`).join('')}
+        </div>
+      </div>`).join('');
+    return;
+  }
+
+  // Vista Por Día
+  if(_cuentasVista==='porDia'){
+    const dias={};
+    S.mov.forEach(m=>{
+      if(!dias[m.fecha]) dias[m.fecha]={ing:0,gas:0,movs:[]};
+      if(m.tipo==='ingreso') dias[m.fecha].ing+=m.monto;
+      else dias[m.fecha].gas+=m.monto;
+      dias[m.fecha].movs.push(m);
+    });
+    if(!Object.keys(dias).length){cont.innerHTML='<div class="empty"><div class="ic">📅</div><p>Sin movimientos</p></div>';return;}
+    cont.innerHTML=Object.entries(dias).sort((a,b)=>b[0].localeCompare(a[0])).map(([fecha,d])=>`
+      <div class="card cl-blue" onclick="toggleDiaMovs('${fecha}')">
+        <div class="crow">
+          <div><div class="nm">📅 ${fechaCort(fecha)}</div>
+            <div class="meta">${d.movs.length} movimientos</div></div>
+          <div>
+            <div style="color:var(--ok);font-weight:700;font-size:13px;text-align:right">+${fmtCOP(d.ing)}</div>
+            <div style="color:var(--er);font-weight:700;font-size:13px;text-align:right">-${fmtCOP(d.gas)}</div>
+          </div>
+        </div>
+        <div id="diaMovs_${fecha}" style="display:none;margin-top:8px">
+          ${d.movs.map(m=>`<div style="padding:6px 0;border-top:1px solid #F3F4F6;display:flex;justify-content:space-between;font-size:12px" onclick="event.stopPropagation();verMovimiento('${m.id}')">
+            <span>${esc(m.descripcion)}</span>
+            <span style="color:var(--${m.tipo==='ingreso'?'ok':'er'});font-weight:700">${m.tipo==='ingreso'?'+':'-'}${fmtCOP(m.monto)}</span>
+          </div>`).join('')}
+        </div>
+      </div>`).join('');
+    return;
+  }
   if(!list.length){ cont.innerHTML='<div class="empty"><div class="ic">💸</div><p>Sin movimientos en este filtro</p></div>'; return; }
   cont.innerHTML=list.map(m=>{
     const col=m.tipo==='ingreso'?'green':'red';
@@ -590,6 +703,249 @@ function renderMovimientos(){
 }
 
 // ===== DATOS =====
+// ===== NÓMINA =====
+let _nomTab='pagos';
+function setNomTab(tab,btn){
+  _nomTab=tab;
+  document.querySelectorAll('#v-nomina .tabs button').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+  renderNomina();
+}
+
+function renderNomina(){
+  const cont=document.getElementById('nomContent'); if(!cont)return;
+  if(_nomTab==='trabajadores'){
+    cont.innerHTML=`
+      <button class="btn btn-pr" onclick="showSheet('sEditTrabajador')" style="width:100%;margin-bottom:11px">+ Nuevo Trabajador</button>
+      ${S.trb.length===0
+        ?'<div class="empty"><div class="ic">👷</div><p>No hay trabajadores</p></div>'
+        :S.trb.map(t=>`<div class="card cl-blue" onclick="showSheet('sEditTrabajador','${t.id}')">
+          <div class="crow">
+            <div>
+              <div class="nm">${esc(t.nombre)}</div>
+              <div class="meta">${t.tipo==='planta'?'👔 Planta':'🔧 Contratista'}${t.cargo?' · '+esc(t.cargo):''}${t.valorDia?' · $'+t.valorDia+'/día':''}</div>
+            </div>
+            <span class="badge ${t.activo?'b-green':'b-gray'}">${t.activo?'Activo':'Inactivo'}</span>
+          </div>
+        </div>`).join('')}`;
+    return;
+  }
+  if(_nomTab==='resumen'){
+    // Resumen por trabajador
+    const resumen={};
+    S.nom.forEach(p=>{
+      if(!resumen[p.trabajadorId]) resumen[p.trabajadorId]={nombre:p.trabajadorNombre,total:0,pagos:0};
+      resumen[p.trabajadorId].total+=p.monto;
+      resumen[p.trabajadorId].pagos++;
+    });
+    cont.innerHTML=`
+      <div class="stitle">Total pagado por trabajador</div>
+      ${Object.values(resumen).length===0
+        ?'<div class="empty"><div class="ic">📊</div><p>Sin pagos registrados</p></div>'
+        :Object.values(resumen).sort((a,b)=>b.total-a.total).map(r=>`
+          <div class="card cl-blue">
+            <div class="crow">
+              <div><div class="nm">👤 ${esc(r.nombre)}</div><div class="meta">${r.pagos} pagos</div></div>
+              <div class="amt">${fmtCOP(r.total)}</div>
+            </div>
+          </div>`).join('')}`;
+    return;
+  }
+  // Pagos
+  const list=S.nom.slice().reverse();
+  cont.innerHTML=list.length===0
+    ?'<div class="empty"><div class="ic">💸</div><p>No hay pagos registrados.<br>Toca + para agregar.</p></div>'
+    :list.map(p=>`<div class="card cl-green" onclick="verPagoNom('${p.id}')">
+        <div class="crow">
+          <div>
+            <span class="badge b-${p.tipo==='quincenal'?'blue':'gray'}">${p.tipo==='quincenal'?'Catorcenal':'Por día'}</span>
+            <div class="nm">👤 ${esc(p.trabajadorNombre)}</div>
+            <div class="meta">${fechaCort(p.fecha)}${p.periodo?' · '+esc(p.periodo):''}${p.obra?' · 🏗️ '+esc(p.obra):''}</div>
+          </div>
+          <div class="amt" style="color:var(--ok)">${fmtCOP(p.monto)}</div>
+        </div>
+      </div>`).join('');
+}
+
+SHEETS.sNuevoPago=()=>{
+  const trbs=S.trb.filter(t=>t.activo);
+  return`
+  <div class="sh"><h3>💸 Registrar Pago</h3><button class="x" onclick="closeSheet()">✕</button></div>
+  <div class="sb">
+    <div class="f"><label>Trabajador <span class="req">*</span></label>
+      <select id="nomTrb">
+        <option value="">— Seleccionar —</option>
+        ${trbs.map(t=>`<option value="${t.id}|${esc(t.nombre)}">${esc(t.nombre)} (${t.tipo==='planta'?'Planta':'Contratista'})</option>`).join('')}
+      </select>
+    </div>
+    <div class="r2">
+      <div class="f"><label>Tipo de pago</label>
+        <select id="nomTipo" onchange="nomTipoChange(this.value)">
+          <option value="quincenal">Catorcenal/Quincenal</option>
+          <option value="dia">Por días trabajados</option>
+          <option value="adelanto">Adelanto</option>
+          <option value="otro">Otro</option>
+        </select>
+      </div>
+      <div class="f"><label>Fecha</label><input id="nomFecha" type="date" value="${hoy()}"></div>
+    </div>
+    <div class="f" id="nomDiasWrap" style="display:none">
+      <label>Días trabajados</label>
+      <input id="nomDias" type="number" min="1" max="30" placeholder="Ej: 14" oninput="calcNomMonto()">
+    </div>
+    <div class="f"><label>Período (ej: 1-15 Jun)</label>
+      <input id="nomPeriodo" placeholder="Ej: 1-15 Junio 2026">
+    </div>
+    <div class="f"><label>Monto <span class="req">*</span></label>
+      <input id="nomMonto" type="text" inputmode="numeric" placeholder="0" onfocus="this.select()">
+    </div>
+    <div class="f"><label>Obra asociada (opcional)</label>
+      <input id="nomObra" placeholder="Ej: Casa Caicedo">
+    </div>
+    <div class="f"><label>Método de pago</label>
+      <select id="nomMP">
+        <option value="efectivo">💵 Efectivo</option>
+        <option value="nequi">📱 Nequi</option>
+        <option value="bancolombia">🏦 Bancolombia</option>
+      </select>
+    </div>
+    <div class="f"><label>Notas</label><textarea id="nomNotas" rows="2"></textarea></div>
+  </div>
+  <div class="sf">
+    <button class="btn btn-sec" onclick="closeSheet()">Cancelar</button>
+    <button class="btn btn-ok" onclick="guardarPago()">💾 Guardar Pago</button>
+  </div>`;
+};
+
+function nomTipoChange(v){
+  const wrap=document.getElementById('nomDiasWrap');
+  if(wrap) wrap.style.display=(v==='dia')?'block':'none';
+}
+function calcNomMonto(){
+  const dias=parseInt(document.getElementById('nomDias')?.value)||0;
+  const trbSel=document.getElementById('nomTrb')?.value?.split('|')[0];
+  const trb=S.trb.find(t=>t.id===trbSel);
+  const vd=trb?.valorDia||0;
+  if(dias>0&&vd>0){
+    const inp=document.getElementById('nomMonto');
+    if(inp) inp.value=dias*vd;
+  }
+}
+
+async function guardarPago(){
+  const trbVal=document.getElementById('nomTrb').value;
+  if(!trbVal){toast('Selecciona el trabajador');return;}
+  const monto=parseCOP(document.getElementById('nomMonto').value);
+  if(monto<=0){toast('Ingresa el monto');return;}
+  const [trbId,trbNombre]=trbVal.split('|');
+  const p={
+    id:uid(), fecha:document.getElementById('nomFecha').value,
+    trabajadorId:trbId, trabajadorNombre:trbNombre,
+    tipo:document.getElementById('nomTipo').value,
+    periodo:document.getElementById('nomPeriodo').value.trim(),
+    dias:parseInt(document.getElementById('nomDias')?.value)||0,
+    monto, obra:document.getElementById('nomObra').value.trim(),
+    metodoPago:document.getElementById('nomMP').value,
+    notas:document.getElementById('nomNotas').value.trim(),
+    creadoEn:Date.now()
+  };
+  S.nom.push(p);
+  await DB.set(KEYS.NOM,S.nom);
+  // También registrar como gasto en movimientos
+  S.mov.push({
+    id:uid(), tipo:'gasto', fecha:p.fecha,
+    monto:p.monto, descripcion:'Nómina: '+trbNombre+' ('+p.tipo+')',
+    categoria:'nomina', clienteId:null, clienteNombre:null,
+    obraId:null, obraNombre:p.obra||null,
+    metodoPago:p.metodoPago, pagadoPor:'Mallerly Rondón',
+    notas:p.notas, creadoEn:Date.now()
+  });
+  await DB.set(KEYS.MOV,S.mov);
+  closeSheet(); toast('Pago registrado ✓'); renderNomina(); renderMovimientos();
+}
+
+function verPagoNom(id){
+  const p=S.nom.find(x=>x.id===id); if(!p)return;
+  showSheet('sVerPago',p);
+}
+SHEETS.sVerPago=(p)=>`
+  <div class="sh"><h3>Pago Nómina</h3><button class="x" onclick="closeSheet()">✕</button></div>
+  <div class="sb">
+    <div style="text-align:center;padding:16px 0">
+      <div style="font-size:28px;font-weight:700;color:var(--ok)">${fmtCOP(p.monto)}</div>
+      <div class="meta">${fechaCort(p.fecha)}</div>
+    </div>
+    <div class="dtl">
+      <div class="dr"><span class="k">Trabajador</span><span class="v">👤 ${esc(p.trabajadorNombre)}</span></div>
+      <div class="dr"><span class="k">Tipo</span><span class="v">${esc(p.tipo)}</span></div>
+      ${p.periodo?`<div class="dr"><span class="k">Período</span><span class="v">${esc(p.periodo)}</span></div>`:''}
+      ${p.dias?`<div class="dr"><span class="k">Días</span><span class="v">${p.dias}</span></div>`:''}
+      ${p.obra?`<div class="dr"><span class="k">Obra</span><span class="v">🏗️ ${esc(p.obra)}</span></div>`:''}
+      <div class="dr"><span class="k">Método</span><span class="v">${esc(p.metodoPago)}</span></div>
+      ${p.notas?`<div class="dr"><span class="k">Notas</span><span class="v">${esc(p.notas)}</span></div>`:''}
+    </div>
+  </div>
+  <div class="sf">
+    <button class="btn btn-er" onclick="elimPago('${p.id}')">🗑️ Eliminar</button>
+    <button class="btn btn-sec" onclick="closeSheet()">Cerrar</button>
+  </div>`;
+async function elimPago(id){
+  if(!confirm('¿Eliminar este pago?'))return;
+  S.nom=S.nom.filter(x=>x.id!==id);
+  await DB.set(KEYS.NOM,S.nom);
+  closeSheet(); toast('Eliminado'); renderNomina();
+}
+
+SHEETS.sEditTrabajador=(id)=>{
+  const t=id?S.trb.find(x=>x.id===id):{activo:true,tipo:'planta'};
+  return`
+  <div class="sh"><h3>${id?'Editar':'Nuevo'} Trabajador</h3><button class="x" onclick="closeSheet()">✕</button></div>
+  <div class="sb">
+    <input type="hidden" id="trbId" value="${t?.id||''}">
+    <div class="f"><label>Nombre <span class="req">*</span></label><input id="trbNombre" value="${esc(t?.nombre||'')}"></div>
+    <div class="r2">
+      <div class="f"><label>Tipo</label>
+        <select id="trbTipo">
+          <option value="planta" ${t?.tipo==='planta'?'selected':''}>👔 Planta</option>
+          <option value="contratista" ${t?.tipo==='contratista'?'selected':''}>🔧 Contratista</option>
+          <option value="jornal" ${t?.tipo==='jornal'?'selected':''}>📅 Jornal/Día</option>
+        </select>
+      </div>
+      <div class="f"><label>Cargo</label><input id="trbCargo" value="${esc(t?.cargo||'')}"></div>
+    </div>
+    <div class="r2">
+      <div class="f"><label>Salario base / quincenal</label><input id="trbSalario" type="text" inputmode="numeric" value="${t?.salarioBase||''}" placeholder="0"></div>
+      <div class="f"><label>Valor por día</label><input id="trbValDia" type="text" inputmode="numeric" value="${t?.valorDia||''}" placeholder="0"></div>
+    </div>
+    <div class="f"><label>Cédula</label><input id="trbCC" value="${esc(t?.cc||'')}"></div>
+    <label style="display:flex;align-items:center;gap:10px;padding:8px 0;cursor:pointer">
+      <input type="checkbox" id="trbActivo" ${t?.activo?'checked':''} style="width:18px;height:18px">
+      <span style="font-size:14px;font-weight:600">Trabajador activo</span>
+    </label>
+  </div>
+  <div class="sf">
+    ${id&&!['trb1','trb2','trb3'].includes(id)?`<button class="btn btn-er" onclick="elimTrabajador('${id}')">🗑️</button>`:''}
+    <button class="btn btn-sec" onclick="closeSheet()">Cancelar</button>
+    <button class="btn btn-pr" onclick="guardarTrabajador()">💾 Guardar</button>
+  </div>`;
+};
+async function guardarTrabajador(){
+  const n=document.getElementById('trbNombre').value.trim();
+  if(!n){toast('Falta el nombre');return;}
+  const id=document.getElementById('trbId').value||uid();
+  const t={id,nombre:n,tipo:document.getElementById('trbTipo').value,cargo:document.getElementById('trbCargo').value.trim(),salarioBase:parseCOP(document.getElementById('trbSalario').value),valorDia:parseCOP(document.getElementById('trbValDia').value),cc:document.getElementById('trbCC').value.trim(),activo:document.getElementById('trbActivo').checked};
+  const i=S.trb.findIndex(x=>x.id===id);
+  if(i>=0)S.trb[i]=t; else S.trb.push(t);
+  await DB.set(KEYS.TRB,S.trb);
+  closeSheet(); toast('Guardado ✓'); renderNomina();
+}
+async function elimTrabajador(id){
+  if(!confirm('¿Eliminar trabajador?'))return;
+  S.trb=S.trb.filter(x=>x.id!==id);
+  await DB.set(KEYS.TRB,S.trb);
+  closeSheet(); toast('Eliminado'); renderNomina();
+}
+
 function renderDatos(){
   document.getElementById('infoCli').textContent=S.cli.length+' registrados';
   document.getElementById('infoMat').textContent=S.mat.length+' registrados';
@@ -640,7 +996,7 @@ function renderClienteSelector(containerId, required=true){
         <div class="cli-tag">
           <div class="info">
             <div class="nm">👤 ${esc(_selCli.nombre)}</div>
-            <div class="sub">${_selCli.nit?'NIT/CC: '+esc(_selCli.nit):''}${_selCli.cel?' · 📞 '+esc(_selCli.cel):''}</div>
+            <div class="sub">${_selCli.nit?(_selCli.tipoDoc||'NIT')+': '+esc(_selCli.nit):''}${_selCli.cel?' · 📞 '+esc(_selCli.cel):''}</div>
           </div>
           <button class="change" onclick="clearClienteSel('${containerId}',${required})">Cambiar</button>
         </div>
@@ -742,9 +1098,12 @@ SHEETS.sNuevoCliRapido=()=>`
     <div class="ibox ibox-blue">Completa los datos del cliente para la base de datos.</div>
     <div class="f"><label>Nombre / Razón Social <span class="req">*</span></label><input id="ncNombre" value="${esc(_pendingCliName)}"></div>
     <div class="r2">
-      <div class="f"><label>NIT / Cédula ${_pendingCliRequired?'<span class=\'req\'>*</span>':'<span style=\'color:var(--muted);font-weight:400\'>(opcional)</span>'}</label><input id="ncNit" type="text" inputmode="numeric" placeholder="Ej: 901394839-0"></div>
-      <div class="f"><label>Celular</label><input id="ncCel" type="tel" placeholder="Ej: 3001234567"></div>
+      <div class="f"><label>Tipo documento</label>
+        <select id="ncTipoDoc"><option value="NIT">NIT (Empresa)</option><option value="CC">Cédula (Persona)</option></select>
+      </div>
+      <div class="f"><label>Número ${_pendingCliRequired?'<span class=\'req\'>*</span>':'<span style=\'color:var(--muted);font-weight:400\'>(opcional)</span>'}</label><input id="ncNit" type="text" inputmode="numeric" placeholder="Ej: 901394839-0"></div>
     </div>
+    <div class="f"><label>Celular</label><input id="ncCel" type="tel" placeholder="Ej: 3001234567"></div>
     <div class="f"><label>Email</label><input id="ncEmail" type="email"></div>
     <div class="f"><label>Dirección</label><input id="ncDir" type="text" placeholder="Ej: Calle 5 #3-20, Puerto Asís"></div>
     <p class="meta" style="padding:0 2px;margin-top:4px">${_pendingCliRequired?'El NIT o cédula es obligatorio para cotizaciones y cuentas de cobro.':'Para gastos informales el NIT es opcional.'}</p>
@@ -759,7 +1118,8 @@ async function guardarNuevoCli(){
   const nit=document.getElementById('ncNit').value.trim();
   if(!nombre){toast('Falta el nombre');return;}
   if(_pendingCliRequired&&!nit){toast('El NIT o cédula es obligatorio para cotizaciones');return;}
-  const c={id:uid(),nombre,nit,cel:document.getElementById('ncCel').value.trim(),email:document.getElementById('ncEmail').value.trim(),direccion:document.getElementById('ncDir').value.trim(),creadoEn:Date.now()};
+  const tipoDoc2=document.getElementById('ncTipoDoc')?.value||'NIT';
+  const c={id:uid(),nombre,nit,tipoDoc:tipoDoc2,cel:document.getElementById('ncCel').value.trim(),email:document.getElementById('ncEmail').value.trim(),direccion:document.getElementById('ncDir').value.trim(),creadoEn:Date.now()};
   S.cli.push(c);
   await DB.set(KEYS.CLI,S.cli);
   _selCli={id:c.id,nombre:c.nombre,nit:c.nit||'',cel:c.cel||''};
@@ -863,9 +1223,15 @@ SHEETS.sEditCli=(id)=>{
     <input type="hidden" id="cliId" value="${c?.id||''}">
     <div class="f"><label>Nombre / Razón Social <span class="req">*</span></label><input id="cliNombre" value="${esc(c?.nombre||'')}"></div>
     <div class="r2">
-      <div class="f"><label>NIT / Cédula <span class="req">*</span></label><input id="cliNit" type="text" inputmode="numeric" value="${esc(c?.nit||'')}" placeholder="Ej: 901394839-0"></div>
-      <div class="f"><label>Celular</label><input id="cliCel" type="tel" value="${esc(c?.cel||'')}"></div>
+      <div class="f"><label>Tipo documento <span class="req">*</span></label>
+        <select id="cliTipoDoc">
+          <option value="NIT" ${(!c?.tipoDoc||c?.tipoDoc==='NIT')?'selected':''}>NIT (Empresa)</option>
+          <option value="CC" ${c?.tipoDoc==='CC'?'selected':''}>Cédula (Persona)</option>
+        </select>
+      </div>
+      <div class="f"><label>Número <span class="req">*</span></label><input id="cliNit" type="text" inputmode="numeric" value="${esc(c?.nit||'')}" placeholder="Ej: 901394839-0"></div>
     </div>
+    <div class="f"><label>Celular</label><input id="cliCel" type="tel" value="${esc(c?.cel||'')}"></div>
     <div class="f"><label>Email</label><input id="cliEmail" type="email" value="${esc(c?.email||'')}"></div>
     <div class="f"><label>Dirección</label><input id="cliDir" value="${esc(c?.direccion||'')}"></div>
     <p class="meta" style="padding:0 4px;margin-top:6px">💡 El NIT o cédula permite relacionar este cliente con sus cotizaciones, cobros y gastos.</p>
@@ -882,7 +1248,8 @@ async function guardarCliente(){
   if(!nombre){toast('El nombre es obligatorio');return;}
   if(!nit){toast('El NIT o cédula es obligatorio');return;}
   const id=document.getElementById('cliId').value||uid();
-  const c={id,nombre,nit,cel:document.getElementById('cliCel').value.trim(),email:document.getElementById('cliEmail').value.trim(),direccion:document.getElementById('cliDir').value.trim(),creadoEn:Date.now()};
+  const tipoDoc=document.getElementById('cliTipoDoc')?.value||'NIT';
+  const c={id,nombre,nit,tipoDoc,cel:document.getElementById('cliCel').value.trim(),email:document.getElementById('cliEmail').value.trim(),direccion:document.getElementById('cliDir').value.trim(),creadoEn:Date.now()};
   const i=S.cli.findIndex(x=>x.id===id);
   if(i>=0)S.cli[i]=c; else S.cli.push(c);
   await DB.set(KEYS.CLI,S.cli);
@@ -917,13 +1284,22 @@ SHEETS.sCotizacion=()=>`
       <div class="f"><label>Fecha</label><input id="cotFecha" type="date" value="${_editCot?.fecha||hoy()}"></div>
     </div>
     <div id="cliSelCot"></div>
-    <div class="f"><label>Nombre de la Obra <span class='req'>*</span></label><input id="cotObra" type="text" value="${esc(_editCot?.obra||'')}" placeholder="Ej: Estructura techo bodega Caicedo"></div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin:13px 0 7px">
       <strong style="font-size:13px">Trabajos / Secciones</strong>
       <button class="btn btn-gh btn-sm" onclick="cotAddSec()" style="flex:0 0 auto">+ Sección</button>
     </div>
     <div id="cotSecs"></div>
-    <div class="f" style="margin-top:12px"><label>Materiales varios</label><textarea id="cotVarios" placeholder="Anticorrosivo, Pintura, esmalte…">${esc(_editCot?.varios||'')}</textarea></div>
+    <div class="f" style="margin-top:12px">
+      <label>Materiales varios (marca los que apliquen)</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" id="variosChecks">
+        ${['Anticorrosivo','Pintura','Esmalte','Masilla','Lija','Trapos','Thinner','Soldadura','Discos de corte','Brocas'].map(item=>{
+          const checked=(_editCot?.variosItems||[]).includes(item);
+          return '<label style="display:flex;align-items:center;gap:5px;background:'+(checked?'#DBEAFE':'#F3F4F6')+';padding:5px 10px;border-radius:20px;cursor:pointer;font-size:12px;font-weight:600;border:1.5px solid '+(checked?'#3B82F6':'#E5E7EB')+'">'
+            +'<input type="checkbox" '+(checked?'checked':'')+' value="'+item+'" onchange="toggleVarios(this)" style="accent-color:#1565C0">'+item+'</label>';
+        }).join('')}
+      </div>
+      <textarea id="cotVarios" rows="2" placeholder="Otros materiales adicionales…">${esc(_editCot?.varios||'')}</textarea>
+    </div>
     <div class="r2">
       <div class="f"><label>Tiempo de entrega</label><input id="cotTiempo" value="${esc(_editCot?.tiempoEntrega||'')}"></div>
       <div class="f"><label>Condiciones de pago</label><input id="cotCond" value="${esc(_editCot?.condicionesPago||'')}"></div>
@@ -957,7 +1333,10 @@ function renderSecsCot(){
           <input type="text" placeholder="Descripción" value="${esc(it.desc||'')}" onchange="cotUpdItem(${i},${j},'desc',this.value)">
           <button class="x" onclick="cotDelItem(${i},${j})">✕</button>
         </div>`).join('')}
-        <button class="add-item" onclick="cotAddItem(${i})">+ Agregar material/ítem</button>
+        <div style="display:flex;gap:5px;margin-top:3px">
+          <button class="add-item" style="flex:1" onclick="cotAddItem(${i})">+ Agregar ítem</button>
+          <button class="add-item" style="flex:0 0 auto;border-color:#3B82F6;color:#1565C0;padding:6px 10px" onclick="showSheet('sPickMaterial',${i})">📦 Catálogo</button>
+        </div>
       </div>
     </div>`).join('');
   recalcCot();
@@ -966,8 +1345,26 @@ function cotAddSec(){ _editCot.secciones.push({titulo:'',precio:0,items:[]}); re
 function cotDelSec(i){ if(_editCot.secciones.length<=1){toast('Mínimo una sección');return;} _editCot.secciones.splice(i,1); renderSecsCot(); }
 function cotUpdSec(i,k,v){ if(k==='precio')v=parseCOP(v); _editCot.secciones[i][k]=v; if(k==='precio')recalcCot(); }
 function cotAddItem(i){ _editCot.secciones[i].items.push({cant:'',desc:''}); renderSecsCot(); }
+function cotAddItemFromMat(i, desc){
+  _editCot.secciones[i].items.push({cant:'1',desc});
+  renderSecsCot();
+}
 function cotDelItem(i,j){ _editCot.secciones[i].items.splice(j,1); renderSecsCot(); }
 function cotUpdItem(i,j,k,v){ _editCot.secciones[i].items[j][k]=v; }
+function toggleVarios(cb){
+  if(!_editCot) return;
+  if(!_editCot.variosItems) _editCot.variosItems=[];
+  if(cb.checked){
+    if(!_editCot.variosItems.includes(cb.value)) _editCot.variosItems.push(cb.value);
+    cb.parentElement.style.background='#DBEAFE';
+    cb.parentElement.style.borderColor='#3B82F6';
+  } else {
+    _editCot.variosItems=_editCot.variosItems.filter(x=>x!==cb.value);
+    cb.parentElement.style.background='#F3F4F6';
+    cb.parentElement.style.borderColor='#E5E7EB';
+  }
+}
+
 function recalcCot(){
   const t=_editCot.secciones.reduce((s,sec)=>s+(Number(sec.precio)||0),0);
   _editCot._total=t;
@@ -991,9 +1388,10 @@ async function guardarCot(){
     fecha:document.getElementById('cotFecha').value,
     cliente:{id:_selCli.id,nombre:_selCli.nombre,nit:_selCli.nit,cel:_selCli.cel},
     clienteId:_selCli.id,
-    obra:document.getElementById('cotObra').value.trim()||_selObra.nombre,
+    obra:_selObra?.nombre||'',
     obraId:obra?.id||null, obraNombre:obra?.nombre||_selObra.nombre,
     secciones:_editCot.secciones.filter(s=>s.titulo||s.precio>0),
+    variosItems:Array.from(document.querySelectorAll('#variosChecks input:checked')).map(c=>c.value),
     varios:document.getElementById('cotVarios').value.trim(),
     observaciones:document.getElementById('cotObs').value.trim(),
     tiempoEntrega:document.getElementById('cotTiempo').value.trim(),
@@ -1248,6 +1646,15 @@ async function guardarMov(){
   await DB.set(KEYS.MOV,S.mov);
   closeSheet(); toast('Guardado ✓'); renderAll();
 }
+function toggleObraMovs(obra){
+  const id='obraMovs_'+obra.replace(/[^a-z0-9]/gi,'_');
+  const el=document.getElementById(id); if(!el)return;
+  el.style.display=el.style.display==='none'?'block':'none';
+}
+function toggleDiaMovs(fecha){
+  const el=document.getElementById('diaMovs_'+fecha); if(!el)return;
+  el.style.display=el.style.display==='none'?'block':'none';
+}
 function verMovimiento(id){ const m=S.mov.find(x=>x.id===id); if(!m)return; showSheet('sVerMov',m); }
 SHEETS.sVerMov=(m)=>{
   const col=m.tipo==='ingreso'?'ok':'er';
@@ -1276,6 +1683,32 @@ SHEETS.sVerMov=(m)=>{
 async function elimMov(id){ if(!confirm('¿Eliminar?'))return; S.mov=S.mov.filter(x=>x.id!==id); await DB.set(KEYS.MOV,S.mov); closeSheet(); toast('Eliminado'); renderAll(); }
 
 // ===== MATERIALES =====
+SHEETS.sPickMaterial=(secIdx)=>{
+  return`
+  <div class="sh"><h3>📦 Seleccionar Material</h3><button class="x" onclick="closeSheet()">✕</button></div>
+  <div class="sb">
+    <div class="sbox"><input id="pickMatSearch" placeholder="Buscar material..." oninput="renderPickMat(${secIdx},this.value)" autofocus></div>
+    <div id="pickMatList">
+      ${S.mat.length===0
+        ?'<div class="empty"><div class="ic">📦</div><p>No hay materiales guardados.<br>Agrégalos en Datos → Materiales.</p></div>'
+        :S.mat.map(m=>`<div class="card" onclick="cotAddItemFromMat(${secIdx},'${esc(m.descripcion).replace(/'/g,"\\'")}');closeSheet();setTimeout(renderSecsCot,50)">
+          <div class="nm">${esc(m.descripcion)}</div>
+          <div class="meta">${esc(m.unidad||'')}${m.precio?' · '+fmtCOP(m.precio):''}</div>
+        </div>`).join('')
+      }
+    </div>
+  </div>`;
+};
+function renderPickMat(si, q){
+  const list=document.getElementById('pickMatList'); if(!list)return;
+  const matches=S.mat.filter(m=>(m.descripcion||'').toLowerCase().includes(q.toLowerCase()));
+  if(!matches.length){list.innerHTML='<div class="empty"><p>Sin resultados</p></div>';return;}
+  list.innerHTML=matches.map(m=>`<div class="card" onclick="cotAddItemFromMat(${si},'${esc(m.descripcion).replace(/'/g,"\\'")}');closeSheet();setTimeout(renderSecsCot,50)">
+    <div class="nm">${esc(m.descripcion)}</div>
+    <div class="meta">${esc(m.unidad||'')}${m.precio?' · '+fmtCOP(m.precio):''}</div>
+  </div>`).join('');
+}
+
 SHEETS.sMateriales=()=>`
   <div class="sh"><h3>🔧 Materiales</h3><button class="x" onclick="closeSheet()">✕</button></div>
   <div class="sb">
@@ -1458,46 +1891,29 @@ async function syncTodo(){
     }
   }
 }
-// Mapeo de key de storage → pestaña del Sheet
 const KEY_TAB = {
   [KEYS.CLI]:'clientes', [KEYS.COT]:'cotizaciones', [KEYS.CC]:'cuentas_cobro',
   [KEYS.MAT]:'materiales', [KEYS.PROV]:'proveedores',
-  [KEYS.MOV]:'movimientos', [KEYS.OBR]:'obras'
+  [KEYS.MOV]:'movimientos', [KEYS.OBR]:'obras', [KEYS.NOM]:'nomina'
 };
 
-// autoSync: se llama después de cada DB.set
-// Envía el array completo de esa pestaña (sync_all por tab)
 function autoSync(k, v){
-  if(!S.cfg?.syncEnabled || !S.cfg?.syncUrl) return;
+  // Recargar cfg para tener syncEnabled y syncUrl actualizados
+  const cfg = S.cfg;
+  if(!cfg || !cfg.syncEnabled || !cfg.syncUrl) return;
   const tab = KEY_TAB[k];
   if(!tab) return;
-  const url = S.cfg.syncUrl;
-  fetch(url, {
-    method: 'POST',
-    mode: 'cors',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({ action: 'sync_all', payload: { [tab]: v } })
-  })
-  .then(r => r.ok ? r.json() : Promise.reject(r.status))
-  .then(data => {
-    if(data.ok){
-      S.cfg.lastSync = Date.now();
-      window.storage.set(KEYS.CFG, JSON.stringify(S.cfg)).catch(()=>{});
-      updateSyncDot();
-    }
-  })
-  .catch(err => {
-    // Si falla CORS, intentar con no-cors como fallback silencioso
-    fetch(url, {
-      method: 'POST', mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'sync_all', payload: { [tab]: v } })
-    }).then(()=>{
-      S.cfg.lastSync = Date.now();
-      window.storage.set(KEYS.CFG, JSON.stringify(S.cfg)).catch(()=>{});
-      updateSyncDot();
-    }).catch(()=>{});
-  });
+  const url = cfg.syncUrl.trim();
+  const body = JSON.stringify({ action:'sync_tab', tab, records: Array.isArray(v)?v:[v] });
+  // Intentar con CORS primero, fallback a no-cors
+  fetch(url, { method:'POST', mode:'cors', headers:{'Content-Type':'text/plain'}, body })
+    .then(r=>{ if(r.ok) return r.json(); throw new Error('HTTP '+r.status); })
+    .then(d=>{ if(d.ok){ S.cfg.lastSync=Date.now(); updateSyncDot(); } })
+    .catch(()=>{
+      fetch(url, { method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain'}, body })
+        .then(()=>{ S.cfg.lastSync=Date.now(); updateSyncDot(); })
+        .catch(()=>{});
+    });
 }
 function updateSyncDot(){ const el=document.getElementById('syncDot'); if(!el)return; el.textContent=S.cfg?.syncEnabled&&S.cfg?.syncUrl?'🟢':''; }
 
@@ -1541,6 +1957,10 @@ function pdfCot(id){
   });
   if(c.varios)rows.push([{content:`Varios (${c.varios})`,colSpan:4,styles:{fontStyle:'italic',textColor:[100,100,100]}}]);
   rows.push([{content:'',styles:{fillColor:[255,255,255]}},{content:'',styles:{fillColor:[255,255,255]}},{content:'Total:',styles:{fontStyle:'bold',halign:'right',fillColor:[230,238,247]}},{content:fmtCOP(c.total),styles:{fontStyle:'bold',halign:'right',fillColor:[230,238,247],textColor:[13,71,161]}}]);
+  if(c.anticipo>0){
+    rows.push([{content:'',styles:{fillColor:[255,255,255]}},{content:'',styles:{fillColor:[255,255,255]}},{content:'Anticipo:',styles:{fontStyle:'bold',halign:'right',fillColor:[255,249,230]}},{content:'- '+fmtCOP(c.anticipo),styles:{fontStyle:'bold',halign:'right',fillColor:[255,249,230],textColor:[180,100,0]}}]);
+    rows.push([{content:'',styles:{fillColor:[255,255,255]}},{content:'',styles:{fillColor:[255,255,255]}},{content:'Saldo:',styles:{fontStyle:'bold',halign:'right',fillColor:[209,250,229]}},{content:fmtCOP(c.total-c.anticipo),styles:{fontStyle:'bold',halign:'right',fillColor:[209,250,229],textColor:[4,120,87]}}]);
+  }
   doc.autoTable({startY:y,head:[['Cant','Descripción','Precio Unidad','Subtotal']],body:rows,theme:'grid',headStyles:{fillColor:[21,101,192],textColor:255,fontSize:10,halign:'center'},styles:{fontSize:9,cellPadding:2.2},columnStyles:{0:{cellWidth:18,halign:'center'},1:{cellWidth:'auto'},2:{cellWidth:32,halign:'right'},3:{cellWidth:32,halign:'right'}},margin:{left:14,right:14}});
   let yy=doc.lastAutoTable.finalY+6; doc.setFontSize(9);
   if(c.observaciones){doc.setFont('helvetica','bold');doc.text('Observaciones:',14,yy);doc.setFont('helvetica','normal');doc.text(c.observaciones,45,yy);yy+=5;}
