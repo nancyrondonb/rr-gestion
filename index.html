@@ -428,7 +428,8 @@ const DB = {
   set(k,v){
     try{
       localStorage.setItem(k, JSON.stringify(v));
-      autoSync(k,v);
+      // Sync automático: si hay URL configurada, siempre intenta enviar
+      if(S.cfg?.syncUrl) autoSync(k,v);
       return true;
     }catch(e){
       toast('❌ Error guardando: '+e.message);
@@ -873,10 +874,36 @@ function selCli(id, cid, required){
 let _pendingCliName='', _pendingCliCid='', _pendingCliRequired=true;
 let _pendingParentSheet=null;
 
+function capturarEstadoCot(){
+  if(!_editCot) return;
+  const n=id=>document.getElementById(id);
+  if(n('cotNum')) _editCot._num=n('cotNum').value;
+  if(n('cotFecha')) _editCot._fecha=n('cotFecha').value;
+  if(n('cotAnticipo')) _editCot._anticipo=n('cotAnticipo').value;
+  if(n('cotObs')) _editCot._obs=n('cotObs').value;
+  if(n('cotTiempo')) _editCot._tiempo=n('cotTiempo').value;
+  if(n('cotCond')) _editCot._cond=n('cotCond').value;
+  if(n('cotVarios')) _editCot._varios=n('cotVarios').value;
+  _editCot.variosItems=Array.from(document.querySelectorAll('#variosChecks input:checked')).map(c=>c.value);
+  _editCot.accesorios=Array.from(document.querySelectorAll('#accesoriosChecks input:checked')).map(c=>c.value);
+  if(n('accesoriosExtra')) _editCot.accesoriosExtra=n('accesoriosExtra').value;
+}
+function capturarEstadoCC(){
+  if(!_editCC) return;
+  const n=id=>document.getElementById(id);
+  if(n('ccNum')) _editCC._num=n('ccNum').value;
+  if(n('ccFecha')) _editCC._fecha=n('ccFecha').value;
+  if(n('ccConcepto')) _editCC._concepto=n('ccConcepto').value;
+  if(n('ccValor')) _editCC._valor=n('ccValor').value;
+}
+
 async function crearYSelCli(nombre, cid, required){
   if(!nombre.trim()){toast('Escribe el nombre del cliente');return;}
-  // abrir mini-form para completar datos
   _pendingCliName=nombre.trim(); _pendingCliCid=cid; _pendingCliRequired=required;
+  if(cid==='cliSelCot'){ _pendingParentSheet='sCotizacion'; capturarEstadoCot(); }
+  else if(cid==='cliSelCC'){ _pendingParentSheet='sCuentaCobro'; capturarEstadoCC(); }
+  else if(cid==='cliSelMov'){ _pendingParentSheet='sMovimiento'; }
+  else { _pendingParentSheet=null; }
   showSheet('sNuevoCliRapido');
 }
 
@@ -1110,8 +1137,8 @@ SHEETS.sCotizacion=()=>`
   <div class="sh"><h3>${_editCot?.id?'Editar':'Nueva'} Cotización</h3><button class="x" onclick="closeSheet()">✕</button></div>
   <div class="sb">
     <div class="r2">
-      <div class="f"><label>N° Cotización</label><input id="cotNum" type="number" value="${_editCot?.numero||S.cnt.cot+1}"></div>
-      <div class="f"><label>Fecha</label><input id="cotFecha" type="date" value="${_editCot?.fecha||hoy()}"></div>
+      <div class="f"><label>N° Cotización</label><input id="cotNum" type="number" value="${_editCot?._num||_editCot?.numero||S.cnt.cot+1}"></div>
+      <div class="f"><label>Fecha</label><input id="cotFecha" type="date" value="${_editCot?._fecha||_editCot?.fecha||hoy()}"></div>
     </div>
     <div id="cliSelCot"></div>
 
@@ -1143,22 +1170,22 @@ SHEETS.sCotizacion=()=>`
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px" id="variosChecks">
           ${buildVariosChecks(_editCot?.variosItems||[])}
         </div>
-        <textarea id="cotVarios" rows="2" placeholder="Otros materiales adicionales…">${esc(_editCot?.varios||'')}</textarea>
+        <textarea id="cotVarios" rows="2" placeholder="Otros materiales adicionales…">${esc(_editCot?._varios||_editCot?.varios||'')}</textarea>
       </div>
     </div>
     <div class="r2">
-      <div class="f"><label>Tiempo de entrega</label><input id="cotTiempo" value="${esc(_editCot?.tiempoEntrega||'')}"></div>
-      <div class="f"><label>Condiciones de pago</label><input id="cotCond" value="${esc(_editCot?.condicionesPago||'')}"></div>
+      <div class="f"><label>Tiempo de entrega</label><input id="cotTiempo" value="${esc(_editCot?._tiempo||_editCot?.tiempoEntrega||'')}"></div>
+      <div class="f"><label>Condiciones de pago</label><input id="cotCond" value="${esc(_editCot?._cond||_editCot?.condicionesPago||'')}"></div>
     </div>
     <div class="r2">
       <div class="f"><label>Anticipo (opcional)</label>
-        <input id="cotAnticipo" type="text" inputmode="numeric" value="${_editCot?.anticipo>0?_editCot.anticipo:''}" placeholder="0" onfocus="this.select()" oninput="recalcCot()">
+        <input id="cotAnticipo" type="text" inputmode="numeric" value="${_editCot?._anticipo||(_editCot?.anticipo>0?_editCot.anticipo:'')}" placeholder="0" onfocus="this.select()" oninput="recalcCot()">
       </div>
       <div class="f"><label>Saldo pendiente</label>
         <input id="cotSaldo" readonly style="background:#F3F4F6;color:var(--muted)">
       </div>
     </div>
-    <div class="f"><label>Observaciones</label><input id="cotObs" value="${esc(_editCot?.observaciones||'')}"></div>
+    <div class="f"><label>Observaciones</label><input id="cotObs" value="${esc(_editCot?._obs||_editCot?.observaciones||'')}"></div>
     <div style="background:linear-gradient(135deg,#EFF6FF,#DBEAFE);padding:12px;border-radius:10px;text-align:center;margin:10px 0">
       <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">TOTAL</div>
       <div style="font-size:22px;font-weight:700;color:var(--pr)" id="cotTotalDisp">$ 0</div>
@@ -1196,6 +1223,14 @@ function cotDelSec(i){ if(_editCot.secciones.length<=1){toast('Mínimo una secci
 function cotUpdSec(i,k,v){ if(k==='precio')v=parseCOP(v); _editCot.secciones[i][k]=v; if(k==='precio')recalcCot(); }
 function cotAddItem(i){ _editCot.secciones[i].items.push({cant:'',desc:''}); renderSecsCot(); }
 function cotAddItemFromMat(i,desc){ _editCot.secciones[i].items.push({cant:'1',desc}); renderSecsCot(); }
+function cotAddItemFromMatYVolver(i,desc){
+  // Capturar estado antes de cerrar el picker
+  capturarEstadoCot();
+  _editCot.secciones[i].items.push({cant:'1', desc});
+  // Volver al formulario de cotización (no cerrarlo)
+  showSheet('sCotizacion');
+  setTimeout(()=>{ renderClienteSelector('cliSelCot',true,_selCli?.id,_selObra?.id); renderSecsCot(); },80);
+}
 function cotDelItem(i,j){ _editCot.secciones[i].items.splice(j,1); renderSecsCot(); }
 function cotUpdItem(i,j,k,v){ _editCot.secciones[i].items[j][k]=v; }
 function recalcCot(){
@@ -1209,6 +1244,8 @@ function recalcCot(){
 
 async function guardarCot(){
   if(!_selCli){toast('⚠️ Selecciona el cliente');return;}
+  // Capturar estado antes de guardar
+  capturarEstadoCot();
   const obraInput=document.getElementById('obraInput_cliSelCot');
   if(obraInput&&obraInput.style.display!=='none'&&obraInput.value.trim()) _selObra={id:null,nombre:obraInput.value.trim()};
   if(!_selObra||!_selObra.nombre){toast('⚠️ Indica la obra o proyecto');return;}
@@ -1217,8 +1254,8 @@ async function guardarCot(){
   const obra=await asegurarObra();
   const cot={
     id:_editCot.id||uid(),
-    numero:parseInt(document.getElementById('cotNum').value)||S.cnt.cot+1,
-    fecha:document.getElementById('cotFecha').value,
+    numero:parseInt(document.getElementById('cotNum')?.value||_editCot?._num||S.cnt.cot+1),
+    fecha:document.getElementById('cotFecha')?.value||_editCot?._fecha||hoy(),
     cliente:{id:_selCli.id,nombre:_selCli.nombre,nit:_selCli.nit,cel:_selCli.cel},
     clienteId:_selCli.id,
     obra:_selObra?.nombre||'',
@@ -1230,14 +1267,16 @@ async function guardarCot(){
     varios:document.getElementById('cotVarios').value.trim(),
     observaciones:document.getElementById('cotObs').value.trim(),
     tiempoEntrega:document.getElementById('cotTiempo').value.trim(),
-    condicionesPago:document.getElementById('cotCond').value.trim(),
-    anticipo:parseCOP(document.getElementById('cotAnticipo')?.value||'0'),
+    condicionesPago:(document.getElementById('cotCond')?.value||_editCot?._cond||'').trim(),
+    anticipo:parseCOP(document.getElementById('cotAnticipo')?.value||_editCot?._anticipo||'0'),
     total:_editCot._total||0, creadoEn:_editCot.creadoEn||Date.now()
   };
   const idx=S.cot.findIndex(x=>x.id===cot.id);
+  // Limpiar campos capturados temporales
+  if(_editCot){ delete _editCot._num; delete _editCot._fecha; delete _editCot._anticipo; delete _editCot._obs; delete _editCot._tiempo; delete _editCot._cond; delete _editCot._varios; }
   if(idx>=0)S.cot[idx]=cot; else S.cot.push(cot);
   if(cot.numero>S.cnt.cot)S.cnt.cot=cot.numero;
-  await DB.set(KEYS.COT,S.cot); await DB.set(KEYS.CNT,S.cnt);
+  DB.set(KEYS.COT,S.cot); DB.set(KEYS.CNT,S.cnt);
   closeSheet(); toast('Cotización guardada ✓'); renderAll();
   setTimeout(()=>verCotizacion(cot.id),200);
 }
@@ -1276,12 +1315,12 @@ SHEETS.sCuentaCobro=()=>`
   <div class="sh"><h3>${_editCC?.id?'Editar':'Nueva'} Cuenta de Cobro</h3><button class="x" onclick="closeSheet()">✕</button></div>
   <div class="sb">
     <div class="r2">
-      <div class="f"><label>N°</label><input id="ccNum" type="number" value="${_editCC?.numero||S.cnt.cc+1}"></div>
-      <div class="f"><label>Fecha</label><input id="ccFecha" type="date" value="${_editCC?.fecha||hoy()}"></div>
+      <div class="f"><label>N°</label><input id="ccNum" type="number" value="${_editCC?._num||_editCC?.numero||S.cnt.cc+1}"></div>
+      <div class="f"><label>Fecha</label><input id="ccFecha" type="date" value="${_editCC?._fecha||_editCC?.fecha||hoy()}"></div>
     </div>
     <div id="cliSelCC"></div>
     <div class="f"><label>Concepto <span class="req">*</span></label><textarea id="ccConcepto" rows="3" placeholder="Ej: Modificación horno Santa Ana, izada de tubo y cambio de techo.">${esc(_editCC?.concepto||'')}</textarea></div>
-    <div class="f"><label>Valor <span class="req">*</span></label><input id="ccValor" type="text" inputmode="numeric" value="${_editCC?.valor||''}" placeholder="0" onfocus="this.select()" oninput="ccPreviewLetras()"></div>
+    <div class="f"><label>Valor <span class="req">*</span></label><input id="ccValor" type="text" inputmode="numeric" value="${_editCC?._valor||_editCC?.valor||''}" placeholder="0" onfocus="this.select()" oninput="ccPreviewLetras()"></div>
     <div id="ccLetras" style="background:#FFFDE7;padding:10px;border-radius:8px;font-size:12px;color:#5D4037;min-height:34px"></div>
   </div>
   <div class="sf">
@@ -1294,8 +1333,11 @@ async function guardarCC(){
   const obraInput=document.getElementById('obraInput_cliSelCC');
   if(obraInput&&obraInput.style.display!=='none'&&obraInput.value.trim()) _selObra={id:null,nombre:obraInput.value.trim()};
   if(!_selObra||!_selObra.nombre){toast('⚠️ Indica la obra o proyecto');return;}
-  const concepto=document.getElementById('ccConcepto').value.trim();
-  const valor=parseCOP(document.getElementById('ccValor').value);
+  // Capturar estado antes de leer (por si viene del mini-form de cliente)
+  const ccConceptoEl=document.getElementById('ccConcepto');
+  const ccValorEl=document.getElementById('ccValor');
+  const concepto=(ccConceptoEl?.value||_editCC?._concepto||'').trim();
+  const valor=parseCOP(ccValorEl?.value||_editCC?._valor||'0');
   if(!concepto){toast('Falta el concepto');return;}
   if(valor<=0){toast('Valor inválido');return;}
   const obra=await asegurarObra();
@@ -1303,7 +1345,7 @@ async function guardarCC(){
   const idx=S.cc.findIndex(x=>x.id===cc.id);
   if(idx>=0)S.cc[idx]=cc; else S.cc.push(cc);
   if(cc.numero>S.cnt.cc)S.cnt.cc=cc.numero;
-  await DB.set(KEYS.CC,S.cc); await DB.set(KEYS.CNT,S.cnt);
+  DB.set(KEYS.CC,S.cc); DB.set(KEYS.CNT,S.cnt);
   closeSheet(); toast('Cuenta de cobro guardada ✓'); renderAll();
   setTimeout(()=>verCuentaCobro(cc.id),200);
 }
@@ -1472,7 +1514,7 @@ async function elimMov(id){ if(!confirm('¿Eliminar?'))return; S.mov=S.mov.filte
 SHEETS.sPickMaterial=(secIdx)=>{
   const matList=S.mat.length===0
     ?'<div class="empty"><div class="ic">📦</div><p>No hay materiales.<br>Agrégalos en Datos → Materiales.</p></div>'
-    :S.mat.map(m=>'<div class="card" onclick="cotAddItemFromMat('+secIdx+',\''+esc(m.descripcion).replace(/\'/g,'&#39;')+'\');closeSheet();setTimeout(renderSecsCot,50)"><div class="nm">'+esc(m.descripcion)+'</div><div class="meta">'+esc(m.unidad||'')+(m.precio?' · '+fmtCOP(m.precio):'')+'</div></div>').join('');
+    :S.mat.map(m=>'<div class="card" onclick="cotAddItemFromMatYVolver('+secIdx+',\''+esc(m.descripcion).replace(/\'/g,'&#39;')+'\')"><div class="nm">'+esc(m.descripcion)+'</div><div class="meta">'+esc(m.unidad||'')+(m.precio?' · '+fmtCOP(m.precio):'')+'</div></div>').join('');
   return '<div class="sh"><h3>📦 Seleccionar Material</h3><button class="x" onclick="closeSheet()">✕</button></div>'
     +'<div class="sb"><div class="sbox"><input placeholder="Buscar..." oninput="filterPickMat('+secIdx+',this.value)"></div>'
     +'<div id="pickMatList">'+matList+'</div></div>';
@@ -1481,7 +1523,7 @@ function filterPickMat(si,q){
   const list=document.getElementById('pickMatList'); if(!list)return;
   const matches=S.mat.filter(m=>(m.descripcion||'').toLowerCase().includes(q.toLowerCase()));
   list.innerHTML=matches.length===0?'<div class="empty"><p>Sin resultados</p></div>'
-    :matches.map(m=>'<div class="card" onclick="cotAddItemFromMat('+si+',\''+esc(m.descripcion).replace(/\'/g,'&#39;')+'\');closeSheet();setTimeout(renderSecsCot,50)"><div class="nm">'+esc(m.descripcion)+'</div></div>').join('');
+    :matches.map(m=>'<div class="card" onclick="cotAddItemFromMatYVolver('+si+',\''+esc(m.descripcion).replace(/\'/g,'&#39;')+'\')"><div class="nm">'+esc(m.descripcion)+'</div></div>').join('');
 }
 
 SHEETS.sMateriales=()=>`
@@ -1631,16 +1673,19 @@ function enviarAlSheet(tab, records){
   if(!S.cfg?.syncUrl) return;
   const url=S.cfg.syncUrl.trim();
   const body=JSON.stringify({action:'sync_tab', tab, records});
+  // Indicar que está enviando
+  const dot=document.getElementById('syncDot');
+  if(dot) dot.textContent='🔵';
   fetch(url, {
     method:'POST',
-    mode:'no-cors',   // no-cors siempre envía, aunque no podamos leer la respuesta
+    mode:'no-cors',
     headers:{'Content-Type':'text/plain'},
     body
   }).then(()=>{
     S.cfg.lastSync=Date.now();
     try{localStorage.setItem(KEYS.CFG,JSON.stringify(S.cfg));}catch(e){}
-    updateSyncDot();
-  }).catch(err=>{ console.warn('Sync error:', err); updateSyncDot('error'); });
+    updateSyncDot(); // 🟢
+  }).catch(()=>{ updateSyncDot('error'); }); // 🔴
 }
 function updateSyncDot(status){
   const el=document.getElementById('syncDot'); if(!el)return;
