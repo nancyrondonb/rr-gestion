@@ -415,23 +415,40 @@ const DEF_CFG = {
 let S = { cfg:null, cot:[], cc:[], cli:[], mat:[], prov:[], mov:[], obr:[], cnt:{cot:58,cc:70}, nom:[], trb:[] };
 
 // ===== STORAGE =====
+// ============================================================
+// STORAGE: usa localStorage (funciona en GitHub Pages y cualquier navegador)
+// ============================================================
 const DB = {
-  async get(k,d=null){ try{ const r=await window.storage.get(k); return r?JSON.parse(r.value):d; }catch(e){return d;} },
-  async set(k,v){ try{ await window.storage.set(k,JSON.stringify(v)); autoSync(k,v); return true; }catch(e){toast('❌ Error guardando');return false;} }
+  get(k, d=null){
+    try{
+      const val = localStorage.getItem(k);
+      return val !== null ? JSON.parse(val) : d;
+    }catch(e){ return d; }
+  },
+  set(k,v){
+    try{
+      localStorage.setItem(k, JSON.stringify(v));
+      autoSync(k,v);
+      return true;
+    }catch(e){
+      toast('❌ Error guardando: '+e.message);
+      return false;
+    }
+  }
 };
 
 async function loadAll(){
-  S.cfg  = await DB.get(KEYS.CFG, DEF_CFG);
-  S.cot  = await DB.get(KEYS.COT, []);
-  S.cc   = await DB.get(KEYS.CC,  []);
-  S.cli  = await DB.get(KEYS.CLI, []);
-  S.mat  = await DB.get(KEYS.MAT, []);
-  S.prov = await DB.get(KEYS.PROV,[]);
-  S.mov  = await DB.get(KEYS.MOV, []);
-  S.obr  = await DB.get(KEYS.OBR, []);
-  S.cnt  = await DB.get(KEYS.CNT, {cot:58,cc:70});
-  S.nom  = await DB.get(KEYS.NOM, []);
-  S.trb  = await DB.get(KEYS.TRB, DEF_TRABAJADORES);
+  S.cfg  = DB.get(KEYS.CFG, DEF_CFG);
+  S.cot  = DB.get(KEYS.COT, []);
+  S.cc   = DB.get(KEYS.CC,  []);
+  S.cli  = DB.get(KEYS.CLI, []);
+  S.mat  = DB.get(KEYS.MAT, []);
+  S.prov = DB.get(KEYS.PROV,[]);
+  S.mov  = DB.get(KEYS.MOV, []);
+  S.obr  = DB.get(KEYS.OBR, []);
+  S.cnt  = DB.get(KEYS.CNT, {cot:58,cc:70});
+  S.nom  = DB.get(KEYS.NOM, []);
+  S.trb  = DB.get(KEYS.TRB, DEF_TRABAJADORES);
 }
 
 // ===== UTILS =====
@@ -1539,48 +1556,91 @@ SHEETS.sConfig=()=>{ const c=S.cfg;return`
     <button class="btn btn-sec" onclick="closeSheet()">Cancelar</button>
     <button class="btn btn-pr" onclick="guardarCfg()">💾 Guardar</button>
   </div>`;};
-async function guardarCfg(){ S.cfg={...S.cfg,taller:document.getElementById('cfgT').value.trim(),nit:document.getElementById('cfgN').value.trim(),cel1:document.getElementById('cfgC1').value.trim(),cel2:document.getElementById('cfgC2').value.trim(),email:document.getElementById('cfgE').value.trim(),direccion:document.getElementById('cfgD').value.trim(),ciudad:document.getElementById('cfgCiu').value.trim(),titular:document.getElementById('cfgTit').value.trim(),cc:document.getElementById('cfgCC').value.trim(),banco:document.getElementById('cfgBan').value.trim(),cuentaTipo:document.getElementById('cfgCTi').value.trim(),cuentaNum:document.getElementById('cfgCN').value.trim(),ciudadCuenta:document.getElementById('cfgCCi').value.trim(),nequi:document.getElementById('cfgNeq').value.trim()}; await window.storage.set(KEYS.CFG,JSON.stringify(S.cfg)); closeSheet(); toast('Configuración guardada ✓'); }
+async function guardarCfg(){ S.cfg={...S.cfg,taller:document.getElementById('cfgT').value.trim(),nit:document.getElementById('cfgN').value.trim(),cel1:document.getElementById('cfgC1').value.trim(),cel2:document.getElementById('cfgC2').value.trim(),email:document.getElementById('cfgE').value.trim(),direccion:document.getElementById('cfgD').value.trim(),ciudad:document.getElementById('cfgCiu').value.trim(),titular:document.getElementById('cfgTit').value.trim(),cc:document.getElementById('cfgCC').value.trim(),banco:document.getElementById('cfgBan').value.trim(),cuentaTipo:document.getElementById('cfgCTi').value.trim(),cuentaNum:document.getElementById('cfgCN').value.trim(),ciudadCuenta:document.getElementById('cfgCCi').value.trim(),nequi:document.getElementById('cfgNeq').value.trim()}; localStorage.setItem(KEYS.CFG,JSON.stringify(S.cfg)); closeSheet(); toast('Configuración guardada ✓'); }
 
 // ===== SYNC =====
 SHEETS.sSync=()=>{ const c=S.cfg; return`
   <div class="sh"><h3>☁️ Google Sheets</h3><button class="x" onclick="closeSheet()">✕</button></div>
   <div class="sb">
-    <div class="ibox ibox-blue">Cada vez que Mallerly guarde algo, los datos van automáticamente al Google Sheet en Drive.</div>
-    <div class="f"><label>URL del Apps Script Web App</label><textarea id="syncUrl" rows="3" placeholder="https://script.google.com/macros/s/.../exec">${esc(c.syncUrl||'')}</textarea></div>
+    <div class="ibox ibox-blue" style="margin-bottom:10px">
+      Cada vez que Mallerly guarde algo, los datos se envían al Google Sheet.
+      <br><strong>Requiere:</strong> Apps Script v3 publicado con acceso <em>"Cualquier persona"</em>.
+    </div>
+    <div class="f"><label>URL del Apps Script Web App</label>
+      <textarea id="syncUrl" rows="2" placeholder="https://script.google.com/macros/s/.../exec">${esc(c.syncUrl||'')}</textarea>
+    </div>
     <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:4px 0;margin-bottom:11px">
       <input type="checkbox" id="syncOn" ${c.syncEnabled?'checked':''} style="width:18px;height:18px">
       <span style="font-size:14px;font-weight:600">Activar sincronización automática</span>
     </label>
+    <div id="syncTestResult" style="margin-bottom:8px"></div>
+    <div style="display:flex;gap:7px;margin-bottom:11px">
+      <button class="btn btn-sec" onclick="testSync()" style="flex:1">🔌 Probar</button>
+      <button class="btn btn-pr" onclick="syncTodo()" style="flex:1">🔄 Sincronizar TODO</button>
+    </div>
     <div class="dtl">
       <div class="dr"><span class="k">Estado</span><span class="v">${c.syncEnabled&&c.syncUrl?'🟢 Activa':'⚪ Desactivada'}</span></div>
       <div class="dr"><span class="k">Última sync</span><span class="v">${c.lastSync?new Date(c.lastSync).toLocaleString('es-CO'):'Nunca'}</span></div>
+      <div class="dr"><span class="k">Registros locales</span><span class="v">${S.cli.length} clientes · ${S.cot.length} cot. · ${S.mov.length} mov.</span></div>
     </div>
-    <button class="btn btn-pr" onclick="syncTodo()" style="width:100%;margin-top:8px">🔄 Sincronizar TODO Ahora</button>
   </div>
   <div class="sf">
-    <button class="btn btn-sec" onclick="closeSheet()">Cancelar</button>
-    <button class="btn btn-pr" onclick="guardarSync()">💾 Guardar</button>
+    <button class="btn btn-sec" onclick="closeSheet()">Cerrar</button>
+    <button class="btn btn-pr" onclick="guardarSync()">💾 Guardar URL</button>
   </div>`;};
+
+async function testSync(){
+  const url=(document.getElementById('syncUrl')?.value||S.cfg.syncUrl||'').trim();
+  const res=document.getElementById('syncTestResult');
+  if(!url){if(res)res.innerHTML='<div class="ibox ibox-red">⚠️ Falta la URL</div>';return;}
+  if(res)res.innerHTML='<div class="ibox ibox-blue">🔄 Probando...</div>';
+  try{
+    const r=await fetch(url+'?action=ping',{method:'GET',mode:'cors'});
+    const d=await r.json();
+    if(d.ok){
+      const reg=d.registros||{};
+      if(res)res.innerHTML='<div class="ibox ibox-green">✅ Conexión OK — '+(d.fecha||'')+'<br><small>Sheet tiene: '+(reg.clientes||0)+' clientes, '+(reg.cotizaciones||0)+' cot., '+(reg.movimientos||0)+' mov.</small></div>';
+    } else throw new Error(d.msg||'Error');
+  }catch(e){
+    try{
+      await fetch(url,{method:'GET',mode:'no-cors'});
+      if(res)res.innerHTML='<div class="ibox ibox-orange">🟡 URL alcanzable. El envío de datos POST sí funciona aunque no podamos leer la respuesta.<br><small>Toca "🔄 Sincronizar TODO" y verifica directamente en Google Sheets.</small></div>';
+    }catch(e2){
+      if(res)res.innerHTML='<div class="ibox ibox-red">❌ No se puede conectar.<br><small>Verifica que la URL termine en <strong>/exec</strong> y el script esté publicado.</small></div>';
+    }
+  }
+}
+
+
 function abrirSync(){ showSheet('sSync'); }
-async function guardarSync(){ S.cfg.syncUrl=document.getElementById('syncUrl').value.trim(); S.cfg.syncEnabled=document.getElementById('syncOn').checked; await window.storage.set(KEYS.CFG,JSON.stringify(S.cfg)); closeSheet(); toast(S.cfg.syncEnabled?'Sync activada ✓':'Guardado'); updateSyncDot(); renderDatos(); }
-async function syncTodo(){ S.cfg.syncUrl=(document.getElementById('syncUrl')?.value||S.cfg.syncUrl).trim(); S.cfg.syncEnabled=document.getElementById('syncOn')?.checked??S.cfg.syncEnabled; if(!S.cfg.syncUrl){toast('Falta la URL');return;} toast('Enviando datos...'); try{ await fetch(S.cfg.syncUrl,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'sync_all',payload:{clientes:S.cli,cotizaciones:S.cot,cuentas_cobro:S.cc,materiales:S.mat,proveedores:S.prov,movimientos:S.mov,obras:S.obr}}) }); S.cfg.lastSync=Date.now(); await window.storage.set(KEYS.CFG,JSON.stringify(S.cfg)); updateSyncDot(); toast('✓ Datos enviados a Google Sheets'); }catch(e){toast('Error: '+e.message);} }
+async function guardarSync(){ S.cfg.syncUrl=document.getElementById('syncUrl').value.trim(); S.cfg.syncEnabled=document.getElementById('syncOn').checked; localStorage.setItem(KEYS.CFG,JSON.stringify(S.cfg)); closeSheet(); toast(S.cfg.syncEnabled?'Sync activada ✓':'Guardado'); updateSyncDot(); renderDatos(); }
+async function syncTodo(){ S.cfg.syncUrl=(document.getElementById('syncUrl')?.value||S.cfg.syncUrl).trim(); S.cfg.syncEnabled=document.getElementById('syncOn')?.checked??S.cfg.syncEnabled; if(!S.cfg.syncUrl){toast('Falta la URL');return;} toast('Enviando datos...'); try{ await fetch(S.cfg.syncUrl,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'sync_all',payload:{clientes:S.cli,cotizaciones:S.cot,cuentas_cobro:S.cc,materiales:S.mat,proveedores:S.prov,movimientos:S.mov,obras:S.obr}}) }); S.cfg.lastSync=Date.now(); localStorage.setItem(KEYS.CFG,JSON.stringify(S.cfg)); updateSyncDot(); toast('✓ Datos enviados a Google Sheets'); }catch(e){toast('Error: '+e.message);} }
 function autoSync(k,v){
   if(!S.cfg?.syncEnabled||!S.cfg?.syncUrl) return;
   const TAB={[KEYS.CLI]:'clientes',[KEYS.COT]:'cotizaciones',[KEYS.CC]:'cuentas_cobro',
     [KEYS.MAT]:'materiales',[KEYS.PROV]:'proveedores',[KEYS.MOV]:'movimientos',
     [KEYS.OBR]:'obras',[KEYS.NOM]:'nomina'};
   const tab=TAB[k]; if(!tab) return;
+  enviarAlSheet(tab, Array.isArray(v)?v:[v]);
+}
+
+// Enviar datos al Google Sheet
+// Usa no-cors que siempre funciona desde cualquier origen (GitHub Pages)
+// El Apps Script recibe el POST aunque no podamos leer la respuesta
+function enviarAlSheet(tab, records){
+  if(!S.cfg?.syncUrl) return;
   const url=S.cfg.syncUrl.trim();
-  const body=JSON.stringify({action:'sync_tab', tab, records:Array.isArray(v)?v:[v]});
-  const doFetch=(mode)=>fetch(url,{method:'POST',mode,headers:{'Content-Type':'text/plain'},body});
-  doFetch('cors')
-    .then(r=>{ if(r.ok) return r.json(); throw new Error('HTTP '+r.status); })
-    .then(d=>{ if(d.ok){ S.cfg.lastSync=Date.now(); window.storage.set(KEYS.CFG,JSON.stringify(S.cfg)).catch(()=>{}); updateSyncDot(); } })
-    .catch(()=>{
-      doFetch('no-cors')
-        .then(()=>{ S.cfg.lastSync=Date.now(); window.storage.set(KEYS.CFG,JSON.stringify(S.cfg)).catch(()=>{}); updateSyncDot(); })
-        .catch(()=>updateSyncDot('error'));
-    });
+  const body=JSON.stringify({action:'sync_tab', tab, records});
+  fetch(url, {
+    method:'POST',
+    mode:'no-cors',   // no-cors siempre envía, aunque no podamos leer la respuesta
+    headers:{'Content-Type':'text/plain'},
+    body
+  }).then(()=>{
+    S.cfg.lastSync=Date.now();
+    try{localStorage.setItem(KEYS.CFG,JSON.stringify(S.cfg));}catch(e){}
+    updateSyncDot();
+  }).catch(err=>{ console.warn('Sync error:', err); updateSyncDot('error'); });
 }
 function updateSyncDot(status){
   const el=document.getElementById('syncDot'); if(!el)return;
@@ -1695,7 +1755,7 @@ function pdfCC(id){
 
 // ===== BACKUP / CSV =====
 async function exportBackup(){ const data={version:2,fecha:new Date().toISOString(),...S}; const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const u=URL.createObjectURL(b); const a=document.createElement('a');a.href=u;a.download=`RR_Backup_${hoy()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);toast('Respaldo descargado ✓'); }
-function importBackup(){ if(!confirm('Esto reemplazará TODOS los datos. ¿Continuar?'))return; const inp=document.createElement('input');inp.type='file';inp.accept='.json';inp.onchange=async e=>{ const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(d.cfg)await window.storage.set(KEYS.CFG,JSON.stringify(d.cfg));if(d.cot)await window.storage.set(KEYS.COT,JSON.stringify(d.cot));if(d.cc)await window.storage.set(KEYS.CC,JSON.stringify(d.cc));if(d.cli)await window.storage.set(KEYS.CLI,JSON.stringify(d.cli));if(d.mat)await window.storage.set(KEYS.MAT,JSON.stringify(d.mat));if(d.prov)await window.storage.set(KEYS.PROV,JSON.stringify(d.prov));if(d.mov)await window.storage.set(KEYS.MOV,JSON.stringify(d.mov));if(d.obr)await window.storage.set(KEYS.OBR,JSON.stringify(d.obr));if(d.cnt)await window.storage.set(KEYS.CNT,JSON.stringify(d.cnt));await loadAll();renderAll();toast('Datos restaurados ✓');}catch(err){toast('Archivo inválido');} };inp.click(); }
+function importBackup(){ if(!confirm('Esto reemplazará TODOS los datos. ¿Continuar?'))return; const inp=document.createElement('input');inp.type='file';inp.accept='.json';inp.onchange=async e=>{ const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(d.cfg)localStorage.setItem(KEYS.CFG,JSON.stringify(d.cfg));if(d.cot)localStorage.setItem(KEYS.COT,JSON.stringify(d.cot));if(d.cc)localStorage.setItem(KEYS.CC,JSON.stringify(d.cc));if(d.cli)localStorage.setItem(KEYS.CLI,JSON.stringify(d.cli));if(d.mat)localStorage.setItem(KEYS.MAT,JSON.stringify(d.mat));if(d.prov)localStorage.setItem(KEYS.PROV,JSON.stringify(d.prov));if(d.mov)localStorage.setItem(KEYS.MOV,JSON.stringify(d.mov));if(d.obr)localStorage.setItem(KEYS.OBR,JSON.stringify(d.obr));if(d.cnt)localStorage.setItem(KEYS.CNT,JSON.stringify(d.cnt));await loadAll();renderAll();toast('Datos restaurados ✓');}catch(err){toast('Archivo inválido');} };inp.click(); }
 function csvDL(name,headers,rows){ let csv='\ufeff'+headers.join(';')+'\n'; rows.forEach(r=>{csv+=r.map(v=>{const s=String(v??'');return/[";,\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(';')+'\n';}); const b=new Blob([csv],{type:'text/csv;charset=utf-8'}); const u=URL.createObjectURL(b); const a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000); }
 function exportCSV(){
   csvDL('clientes.csv',['ID','Nombre','NIT','Celular','Email','Direccion'],S.cli.map(c=>[c.id,c.nombre,c.nit,c.cel,c.email,c.direccion]));
@@ -1708,7 +1768,7 @@ function exportCSV(){
 
 // ===== INIT =====
 (async()=>{
-  if(!window.storage){toast('Almacenamiento no disponible');}
+  // localStorage siempre disponible en navegadores modernos
   await loadAll();
   renderAll();
   updateSyncDot();
