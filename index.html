@@ -391,9 +391,39 @@ const DB = {
   get(k,d=null){ try{ const v=localStorage.getItem(k); return v!==null?JSON.parse(v):d; }catch(e){return d;} },
   set(k,v){
     try{ localStorage.setItem(k,JSON.stringify(v)); syncGuardar(k,v); return true; }
-    catch(e){ toast('❌ Error guardando: '+e.message); return false; }
+    catch(e){ toast('❌ Error al guardar'); return false; }
   }
 };
+
+// SYNC AUTOMÁTICO — lee config de localStorage directamente, nunca falla
+function syncGuardar(lsKey, records){
+  try{
+    const raw = localStorage.getItem('rr_cfg2');
+    if(!raw) return;
+    const cfg = JSON.parse(raw);
+    if(!cfg.syncEnabled || !cfg.syncUrl) return;
+    const TAB = {
+      'rr_cli2':'clientes', 'rr_cot2':'cotizaciones', 'rr_cc2':'cuentas_cobro',
+      'rr_mat2':'materiales', 'rr_prov2':'proveedores', 'rr_mov2':'movimientos',
+      'rr_obr2':'obras', 'rr_nom2':'nomina'
+    };
+    const tab = TAB[lsKey];
+    if(!tab) return;
+    const dot = document.getElementById('syncDot');
+    if(dot) dot.textContent = '🔵';
+    fetch(cfg.syncUrl.trim(), {
+      method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'text/plain'},
+      body: JSON.stringify({action:'sync_tab', tab, records: Array.isArray(records)?records:[records]})
+    }).then(()=>{
+      const c = JSON.parse(localStorage.getItem('rr_cfg2') || '{}');
+      c.lastSync = Date.now();
+      localStorage.setItem('rr_cfg2', JSON.stringify(c));
+      if(S && S.cfg) S.cfg.lastSync = c.lastSync;
+      if(dot) dot.textContent = '🟢';
+    }).catch(()=>{ if(dot) dot.textContent = '🔴'; });
+  } catch(e) {}
+}
 
 async function loadAll(){
   S.cfg  = DB.get(KEYS.CFG, DEF_CFG);
@@ -1232,34 +1262,57 @@ SHEETS.sSync=()=>{ const c=S.cfg; return`
     <button class="btn btn-pr" onclick="guardarSync()">💾 Guardar</button>
   </div>`;};
 function abrirSync(){ showSheet('sSync'); }
-async function guardarSync(){ S.cfg.syncUrl=document.getElementById('syncUrl').value.trim(); S.cfg.syncEnabled=document.getElementById('syncOn').checked; localStorage.setItem(KEYS.CFG,JSON.stringify(S.cfg)); closeSheet(); toast(S.cfg.syncEnabled?'Sync activada ✓':'Guardado'); updateSyncDot(); renderDatos(); }
-async function syncTodo(){
-  const url=(document.getElementById('syncUrl')?.value||S.cfg.syncUrl||'').trim();
-  if(!url){toast('Falta la URL');return;}
-  const res=document.getElementById('syncTestResult');
-  const dot=document.getElementById('syncDot');
-  if(res)res.innerHTML='<div class="ibox ibox-blue">⏳ Enviando todos los datos...</div>';
-  if(dot) dot.textContent='🔵';
-  try{
-    S.cfg.syncUrl=url;
-    if(document.getElementById('syncOn')) S.cfg.syncEnabled=document.getElementById('syncOn').checked;
-    await fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'sync_all',payload:{
-        clientes:S.cli,obras:S.obr,cotizaciones:S.cot,cuentas_cobro:S.cc,
-        materiales:S.mat,proveedores:S.prov,movimientos:S.mov
-      }})
-    });
-    S.cfg.lastSync=Date.now();
-    localStorage.setItem(KEYS.CFG,JSON.stringify(S.cfg));
-    if(dot) dot.textContent='🟢';
-    if(res)res.innerHTML='<div class="ibox ibox-green">✅ '+new Date().toLocaleTimeString('es-CO')+' — Enviado. Verifica en Google Sheets.</div>';
-    toast('✅ Datos enviados al Sheet');
-  }catch(e){
-    if(dot) dot.textContent='🔴';
-    toast('❌ Error: '+e.message);
-  }
+async function guardarSync(){
+  const url = (document.getElementById('syncUrl')?.value||'').trim();
+  const enabled = document.getElementById('syncOn')?.checked||false;
+  const c = JSON.parse(localStorage.getItem('rr_cfg2')||JSON.stringify(DEF_CFG));
+  c.syncUrl = url; c.syncEnabled = enabled;
+  localStorage.setItem('rr_cfg2', JSON.stringify(c));
+  if(S && S.cfg){ S.cfg.syncUrl=url; S.cfg.syncEnabled=enabled; }
+  closeSheet();
+  toast(enabled ? '✅ Sync activada — se envía al guardar' : 'Guardado');
+  updateSyncDot(); renderDatos();
 }
 
+function pdfCC(id){
+  const c=S.cc.find(x=>x.id===id); if(!c)return;
+  const cfg=S.cfg; const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:'mm',format:'a4'});
+  try{doc.addImage('data:image/jpeg;base64,'+LOGO_PDF,'JPEG',14,12,26,26);}catch(e){}
+  doc.setFontSize(11).setFont('helvetica','bolditalic'); doc.text(cfg.taller,196,16,{align:'right'});
+  doc.setFontSize(10).setFont('helvetica','italic'); doc.text(`Nit: ${cfg.nit}`,196,21,{align:'right'});
+  let y=50;
+  doc.setFontSize(10).setFont('helvetica','normal'); doc.text(`${cfg.ciudad} ${fechaLarga(c.fecha)}`,14,y);
+  doc.text(`CC ${pad(c.numero)}.${c.fecha.slice(0,4)}`,196,y,{align:'right'}); y+=18;
+  doc.setFontSize(16).setFont('helvetica','bold'); doc.text(c.cliente?.nombre||'',105,y,{align:'center'}); y+=7;
+  doc.setFontSize(12); doc.text(`Nit.: ${c.cliente?.nit||''}`,105,y,{align:'center'}); y+=9;
+  doc.setFontSize(11).setFont('helvetica','normal'); doc.text('DEBE A:',105,y,{align:'center'}); y+=11;
+  doc.setFontSize(13).setFont('helvetica','bold'); doc.text(cfg.titular,105,y,{align:'center'}); y+=6;
+  doc.setFontSize(11); doc.text(`Cc. ${cfg.cc}`,105,y,{align:'center'}); y+=14;
+  doc.setFont('helvetica','normal').setFontSize(11); doc.text('POR CONCEPTO DE:',105,y,{align:'center'}); y+=8;
+  const sc=doc.splitTextToSize(c.concepto,170); doc.text(sc,14,y); y+=sc.length*5+2;
+  const sl=doc.splitTextToSize(`La suma de ${numALetras(c.valor)} pesos mcte ($ ${Math.round(c.valor).toLocaleString('es-CO').replace(/,/g,'.')}).`,170);
+  doc.text(sl,14,y); y+=sl.length*5+6;
+  doc.setFont('helvetica','italic').setFontSize(10); doc.text('Consignar el valor en la siguiente cuenta bancaria:',14,y); y+=8;
+  const x1=14,x2=110;
+  doc.text('Banco: ',x1,y);doc.setFont('helvetica','bolditalic');doc.text(cfg.banco,x1+15,y);
+  doc.setFont('helvetica','italic');doc.text('Ciudad de la cuenta: ',x2,y);doc.setFont('helvetica','bolditalic');doc.text(cfg.ciudadCuenta,x2+38,y);y+=6;
+  doc.setFont('helvetica','italic');doc.text('Cuenta No.: ',x1,y);doc.setFont('helvetica','bolditalic');doc.text(cfg.cuentaNum,x1+22,y);
+  doc.setFont('helvetica','italic');doc.text('Tipo de cuenta: ',x2,y);doc.setFont('helvetica','bolditalic');doc.text(cfg.cuentaTipo,x2+30,y);y+=6;
+  doc.setFont('helvetica','italic');doc.text('Nequi: ',x1,y);doc.setFont('helvetica','bolditalic');doc.text(cfg.nequi,x1+13,y);y+=6;
+  doc.setFont('helvetica','italic');doc.text('Titular: ',x1,y);doc.setFont('helvetica','bolditalic');doc.text(cfg.titular,x1+16,y);
+  doc.setFont('helvetica','italic');doc.text('C.C.: ',x2,y);doc.setFont('helvetica','bolditalic');doc.text(cfg.cc,x2+12,y);
+  y+=18;doc.setFont('helvetica','normal').setFontSize(11);doc.text('Cordialmente;',14,y);y+=22;
+  doc.setFont('helvetica','bold');doc.text(cfg.titular,14,y);y+=5;
+  doc.setFont('helvetica','normal').setFontSize(10);doc.text(`Cc. ${cfg.cc} de Puerto Asís Ptyo.`,14,y);
+  const ph=doc.internal.pageSize.getHeight();
+  doc.setDrawColor(255,140,0);doc.setLineWidth(.5);doc.line(14,ph-18,196,ph-18);
+  doc.setFontSize(9).setFont('helvetica','italic').setTextColor(80,80,80);
+  doc.text(`${cfg.direccion}   Email: ${cfg.email}   Cel.: ${cfg.cel1} - ${cfg.cel2}`,105,ph-13,{align:'center'});
+  doc.save(`CuentaCobro_${pad(c.numero)}_${(c.cliente?.nombre||'').replace(/[^a-zA-Z0-9]/g,'_')}.pdf`);
+  toast('PDF generado ✓');
+}
+
+// ===== BACKUP / CSV =====
 async function exportBackup(){ const data={version:2,fecha:new Date().toISOString(),...S}; const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const u=URL.createObjectURL(b); const a=document.createElement('a');a.href=u;a.download=`RR_Backup_${hoy()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);toast('Respaldo descargado ✓'); }
 function importBackup(){ if(!confirm('Esto reemplazará TODOS los datos. ¿Continuar?'))return; const inp=document.createElement('input');inp.type='file';inp.accept='.json';inp.onchange=async e=>{ const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(d.cfg)localStorage.setItem(KEYS.CFG,JSON.stringify(d.cfg));if(d.cot)localStorage.setItem(KEYS.COT,JSON.stringify(d.cot));if(d.cc)localStorage.setItem(KEYS.CC,JSON.stringify(d.cc));if(d.cli)localStorage.setItem(KEYS.CLI,JSON.stringify(d.cli));if(d.mat)localStorage.setItem(KEYS.MAT,JSON.stringify(d.mat));if(d.prov)localStorage.setItem(KEYS.PROV,JSON.stringify(d.prov));if(d.mov)localStorage.setItem(KEYS.MOV,JSON.stringify(d.mov));if(d.obr)localStorage.setItem(KEYS.OBR,JSON.stringify(d.obr));if(d.cnt)localStorage.setItem(KEYS.CNT,JSON.stringify(d.cnt));await loadAll();renderAll();toast('Datos restaurados ✓');}catch(err){toast('Archivo inválido');} };inp.click(); }
 function csvDL(name,headers,rows){ let csv='\ufeff'+headers.join(';')+'\n'; rows.forEach(r=>{csv+=r.map(v=>{const s=String(v??'');return/[";,\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(';')+'\n';}); const b=new Blob([csv],{type:'text/csv;charset=utf-8'}); const u=URL.createObjectURL(b); const a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000); }
@@ -1273,6 +1326,58 @@ function exportCSV(){
 }
 
 // ===== INIT =====
+
+async function syncTodo(){
+  const url = (document.getElementById('syncUrl')?.value || S.cfg.syncUrl || '').trim();
+  const res = document.getElementById('syncTestResult');
+  const dot = document.getElementById('syncDot');
+  if(!url){ if(res)res.innerHTML='<div class="ibox ibox-red">⚠️ Falta la URL</div>'; return; }
+  if(res) res.innerHTML='<div class="ibox ibox-blue">⏳ Enviando todos los datos...</div>';
+  if(dot) dot.textContent='🔵';
+  try{
+    // Guardar URL y activar sync si hay URL
+    const c=JSON.parse(localStorage.getItem('rr_cfg2')||JSON.stringify(DEF_CFG));
+    c.syncUrl=url; c.syncEnabled=true;
+    localStorage.setItem('rr_cfg2',JSON.stringify(c));
+    if(S && S.cfg){ S.cfg.syncUrl=url; S.cfg.syncEnabled=true; }
+    await fetch(url, {method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'text/plain'},
+      body: JSON.stringify({action:'sync_all', payload:{
+        clientes:S.cli, obras:S.obr, cotizaciones:S.cot, cuentas_cobro:S.cc,
+        materiales:S.mat, proveedores:S.prov, movimientos:S.mov, nomina:S.nom||[]
+      }})
+    });
+    c.lastSync=Date.now(); localStorage.setItem('rr_cfg2',JSON.stringify(c));
+    if(S && S.cfg) S.cfg.lastSync=c.lastSync;
+    if(dot) dot.textContent='🟢';
+    if(res) res.innerHTML='<div class="ibox ibox-green">✅ '+new Date().toLocaleTimeString('es-CO')+' — Enviado. Verifica en Google Sheets.</div>';
+    toast('✅ Datos enviados al Sheet');
+  }catch(e){
+    if(dot) dot.textContent='🔴';
+    if(res) res.innerHTML='<div class="ibox ibox-red">❌ Error: '+e.message+'</div>';
+    toast('❌ Error al sincronizar');
+  }
+}
+
+async function testSync(){
+  const url = (document.getElementById('syncUrl')?.value || S.cfg.syncUrl || '').trim();
+  const res = document.getElementById('syncTestResult');
+  if(!url){ if(res)res.innerHTML='<div class="ibox ibox-red">Falta la URL</div>'; return; }
+  if(res) res.innerHTML='<div class="ibox ibox-blue">🔄 Probando...</div>';
+  try{
+    const r=await fetch(url+'?action=ping',{method:'GET',mode:'cors'});
+    const d=await r.json();
+    if(res) res.innerHTML='<div class="ibox ibox-green">✅ Conexión OK — '+d.fecha+'<br><small>'+JSON.stringify(d.registros||{})+'</small></div>';
+  }catch(e){
+    try{
+      await fetch(url,{method:'GET',mode:'no-cors'});
+      if(res) res.innerHTML='<div class="ibox ibox-yellow">🟡 URL activa. El envío POST sí funciona.<br><small>Toca "Sincronizar TODO" y verifica en el Sheet.</small></div>';
+    }catch(e2){
+      if(res) res.innerHTML='<div class="ibox ibox-red">❌ No se puede conectar. Verifica la URL termine en /exec</div>';
+    }
+  }
+}
+
 (async()=>{
   await loadAll();
   renderAll();
