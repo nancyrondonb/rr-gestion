@@ -395,7 +395,7 @@ const DB = {
   }
 };
 
-// SYNC AUTOMÁTICO — lee config de localStorage directamente, nunca falla
+// SYNC AUTOMÁTICO — usa GET igual que Raíces del Putumayo (patrón probado)
 function syncGuardar(lsKey, records){
   try{
     const raw = localStorage.getItem('rr_cfg2');
@@ -411,18 +411,22 @@ function syncGuardar(lsKey, records){
     if(!tab) return;
     const dot = document.getElementById('syncDot');
     if(dot) dot.textContent = '🔵';
-    fetch(cfg.syncUrl.trim(), {
-      method:'POST', mode:'no-cors',
-      headers:{'Content-Type':'text/plain'},
-      body: JSON.stringify({action:'sync_tab', tab, records: Array.isArray(records)?records:[records]})
-    }).then(()=>{
-      const c = JSON.parse(localStorage.getItem('rr_cfg2') || '{}');
-      c.lastSync = Date.now();
-      localStorage.setItem('rr_cfg2', JSON.stringify(c));
-      if(S && S.cfg) S.cfg.lastSync = c.lastSync;
-      if(dot) dot.textContent = '🟢';
-    }).catch(()=>{ if(dot) dot.textContent = '🔴'; });
-  } catch(e) {}
+    // Usar GET con payload en URL — mismo patrón que funciona en Raíces del Putumayo
+    const payload = encodeURIComponent(JSON.stringify({
+      action: 'sync_tab', tab,
+      records: Array.isArray(records) ? records : [records]
+    }));
+    const url = cfg.syncUrl.trim() + '?payload=' + payload;
+    fetch(url, { method: 'GET', mode: 'no-cors' })
+      .then(()=>{
+        const c = JSON.parse(localStorage.getItem('rr_cfg2') || '{}');
+        c.lastSync = Date.now();
+        localStorage.setItem('rr_cfg2', JSON.stringify(c));
+        if(S && S.cfg) S.cfg.lastSync = c.lastSync;
+        if(dot) dot.textContent = '🟢';
+      })
+      .catch(()=>{ if(dot) dot.textContent = '🔴'; });
+  } catch(e) { console.warn('syncGuardar:', e); }
 }
 
 async function loadAll(){
@@ -1340,13 +1344,14 @@ async function syncTodo(){
     c.syncUrl=url; c.syncEnabled=true;
     localStorage.setItem('rr_cfg2',JSON.stringify(c));
     if(S && S.cfg){ S.cfg.syncUrl=url; S.cfg.syncEnabled=true; }
-    await fetch(url, {method:'POST', mode:'no-cors',
-      headers:{'Content-Type':'text/plain'},
-      body: JSON.stringify({action:'sync_all', payload:{
+    const payloadTodo = encodeURIComponent(JSON.stringify({
+      action: 'sync_all',
+      payload: {
         clientes:S.cli, obras:S.obr, cotizaciones:S.cot, cuentas_cobro:S.cc,
         materiales:S.mat, proveedores:S.prov, movimientos:S.mov, nomina:S.nom||[]
-      }})
-    });
+      }
+    }));
+    await fetch(url + '?payload=' + payloadTodo, { method: 'GET', mode: 'no-cors' });
     c.lastSync=Date.now(); localStorage.setItem('rr_cfg2',JSON.stringify(c));
     if(S && S.cfg) S.cfg.lastSync=c.lastSync;
     if(dot) dot.textContent='🟢';
