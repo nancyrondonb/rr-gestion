@@ -428,8 +428,17 @@ const DB = {
   set(k,v){
     try{
       localStorage.setItem(k, JSON.stringify(v));
-      // Sync automático: si hay URL configurada, siempre intenta enviar
-      if(S.cfg?.syncUrl) autoSync(k,v);
+      // SYNC: leer URL directamente de localStorage para máxima confiabilidad
+      // No depende de S.cfg en memoria (puede no estar listo al inicio)
+      try{
+        const cfgRaw = localStorage.getItem('rr_cfg2');
+        if(cfgRaw){
+          const cfg = JSON.parse(cfgRaw);
+          if(cfg.syncEnabled && cfg.syncUrl){
+            autoSync(k, v, cfg.syncUrl);
+          }
+        }
+      }catch(se){ /* sync falla silenciosamente */ }
       return true;
     }catch(e){
       toast('❌ Error guardando: '+e.message);
@@ -940,13 +949,20 @@ async function guardarNuevoCli(){
   // Volver al formulario padre (cotización, cobro o movimiento)
   if(_pendingParentSheet==='sCotizacion'){
     showSheet('sCotizacion');
-    setTimeout(()=>{ renderClienteSelector('cliSelCot',true); renderSecsCot(); },80);
+    setTimeout(()=>{
+      // Pasar el ID del cliente recién creado para que aparezca ya seleccionado
+      buildClienteSelector('cliSelCot',true,_selCli?.id,_selObra?.id);
+      renderSecsCot();
+    },80);
   } else if(_pendingParentSheet==='sCuentaCobro'){
     showSheet('sCuentaCobro');
-    setTimeout(()=>{ renderClienteSelector('cliSelCC',true); setTimeout(ccPreviewLetras,150); },80);
+    setTimeout(()=>{
+      buildClienteSelector('cliSelCC',true,_selCli?.id,_selObra?.id);
+      setTimeout(ccPreviewLetras,150);
+    },80);
   } else if(_pendingParentSheet==='sMovimiento'){
     showSheet('sMovimiento');
-    setTimeout(()=>{ renderClienteSelector('cliSelMov',false); },80);
+    setTimeout(()=>{ buildClienteSelector('cliSelMov',false,_selCli?.id,_selObra?.id); },80);
   } else {
     closeSheet();
     setTimeout(()=>renderClienteSelector(_pendingCliCid,_pendingCliRequired),100);
@@ -1258,6 +1274,8 @@ async function guardarCot(){
     fecha:document.getElementById('cotFecha')?.value||_editCot?._fecha||hoy(),
     cliente:{id:_selCli.id,nombre:_selCli.nombre,nit:_selCli.nit,cel:_selCli.cel},
     clienteId:_selCli.id,
+    clienteNombre:_selCli.nombre||'',
+    clienteNit:_selCli.nit||'',
     obra:_selObra?.nombre||'',
     obraId:obra?.id||null, obraNombre:obra?.nombre||_selObra.nombre,
     secciones:_editCot.secciones.filter(s=>s.titulo||s.precio>0),
@@ -1341,7 +1359,7 @@ async function guardarCC(){
   if(!concepto){toast('Falta el concepto');return;}
   if(valor<=0){toast('Valor inválido');return;}
   const obra=await asegurarObra();
-  const cc={id:_editCC?.id||uid(),numero:parseInt(document.getElementById('ccNum').value)||S.cnt.cc+1,fecha:document.getElementById('ccFecha').value,cliente:{id:_selCli.id,nombre:_selCli.nombre,nit:_selCli.nit},clienteId:_selCli.id,obraId:obra?.id||null,obraNombre:obra?.nombre||_selObra.nombre,concepto,valor,creadoEn:_editCC?.creadoEn||Date.now()};
+  const cc={id:_editCC?.id||uid(),numero:parseInt(document.getElementById('ccNum').value)||S.cnt.cc+1,fecha:document.getElementById('ccFecha').value,cliente:{id:_selCli.id,nombre:_selCli.nombre,nit:_selCli.nit},clienteId:_selCli.id,clienteNombre:_selCli.nombre||'',clienteNit:_selCli.nit||'',obraId:obra?.id||null,obraNombre:obra?.nombre||_selObra.nombre,concepto,valor,creadoEn:_editCC?.creadoEn||Date.now()};
   const idx=S.cc.findIndex(x=>x.id===cc.id);
   if(idx>=0)S.cc[idx]=cc; else S.cc.push(cc);
   if(cc.numero>S.cnt.cc)S.cnt.cc=cc.numero;
@@ -1543,11 +1561,28 @@ SHEETS.sEditMat=(id)=>{ const m=id?S.mat.find(x=>x.id===id):{};return`
     </div>
     <div class="f"><label>Proveedor habitual</label><input id="matProv" value="${esc(m?.proveedor||'')}"></div>
   </div>
-  <div class="sf">${id?`<button class="btn btn-er" onclick="elimMat('${id}')">🗑️</button>`:''}
+  <div class="sf">${id?'<button class="btn btn-er" onclick="elimMat(\''+id+'\')">🗑️</button>':''}
     <button class="btn btn-sec" onclick="closeSheet()">Cancelar</button>
     <button class="btn btn-pr" onclick="guardarMat()">💾 Guardar</button>
   </div>`;};
-async function guardarMat(){ const d=document.getElementById('matDesc').value.trim(); if(!d){toast('Falta descripción');return;} const id=document.getElementById('matId').value||uid(); const m={id,descripcion:d,unidad:document.getElementById('matUnidad').value.trim(),precio:parseCOP(document.getElementById('matPrecio').value),proveedor:document.getElementById('matProv').value.trim()}; const i=S.mat.findIndex(x=>x.id===id); if(i>=0)S.mat[i]=m; else S.mat.push(m); await DB.set(KEYS.MAT,S.mat); closeSheet(); toast('Guardado ✓'); setTimeout(()=>showSheet('sMateriales'),100); renderDatos(); }
+async function guardarMat(){
+  const d=document.getElementById('matDesc').value.trim();
+  if(!d){toast('Falta descripción');return;}
+  const id=document.getElementById('matId').value||uid();
+  const m={
+    id, descripcion:d,
+    unidad:document.getElementById('matUnidad').value.trim(),
+    precio:parseCOP(document.getElementById('matPrecio').value),
+    proveedor:document.getElementById('matProv').value.trim()
+  };
+  const i=S.mat.findIndex(x=>x.id===id);
+  if(i>=0) S.mat[i]=m; else S.mat.push(m);
+  DB.set(KEYS.MAT, S.mat);
+  closeSheet();
+  toast('Material guardado ✓');
+  setTimeout(()=>showSheet('sMateriales'),100);
+  renderDatos();
+}
 async function elimMat(id){ if(!confirm('¿Eliminar?'))return; S.mat=S.mat.filter(x=>x.id!==id); await DB.set(KEYS.MAT,S.mat); closeSheet(); setTimeout(()=>showSheet('sMateriales'),100); renderDatos(); }
 
 // ===== PROVEEDORES =====
@@ -1656,36 +1691,70 @@ async function testSync(){
 
 function abrirSync(){ showSheet('sSync'); }
 async function guardarSync(){ S.cfg.syncUrl=document.getElementById('syncUrl').value.trim(); S.cfg.syncEnabled=document.getElementById('syncOn').checked; localStorage.setItem(KEYS.CFG,JSON.stringify(S.cfg)); closeSheet(); toast(S.cfg.syncEnabled?'Sync activada ✓':'Guardado'); updateSyncDot(); renderDatos(); }
-async function syncTodo(){ S.cfg.syncUrl=(document.getElementById('syncUrl')?.value||S.cfg.syncUrl).trim(); S.cfg.syncEnabled=document.getElementById('syncOn')?.checked??S.cfg.syncEnabled; if(!S.cfg.syncUrl){toast('Falta la URL');return;} toast('Enviando datos...'); try{ await fetch(S.cfg.syncUrl,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'sync_all',payload:{clientes:S.cli,cotizaciones:S.cot,cuentas_cobro:S.cc,materiales:S.mat,proveedores:S.prov,movimientos:S.mov,obras:S.obr}}) }); S.cfg.lastSync=Date.now(); localStorage.setItem(KEYS.CFG,JSON.stringify(S.cfg)); updateSyncDot(); toast('✓ Datos enviados a Google Sheets'); }catch(e){toast('Error: '+e.message);} }
-function autoSync(k,v){
-  if(!S.cfg?.syncEnabled||!S.cfg?.syncUrl) return;
-  const TAB={[KEYS.CLI]:'clientes',[KEYS.COT]:'cotizaciones',[KEYS.CC]:'cuentas_cobro',
-    [KEYS.MAT]:'materiales',[KEYS.PROV]:'proveedores',[KEYS.MOV]:'movimientos',
-    [KEYS.OBR]:'obras',[KEYS.NOM]:'nomina'};
+async function syncTodo(){
+  const urlEl=document.getElementById('syncUrl');
+  const onEl=document.getElementById('syncOn');
+  if(urlEl) S.cfg.syncUrl=urlEl.value.trim();
+  if(onEl) S.cfg.syncEnabled=onEl.checked;
+  if(!S.cfg.syncUrl){toast('⚠️ Falta la URL del Apps Script');return;}
+  const res=document.getElementById('syncTestResult');
+  if(res) res.innerHTML='<div class="ibox ibox-blue">⏳ Enviando todos los datos...</div>';
+  toast('Sincronizando...');
+  try{
+    await fetch(S.cfg.syncUrl.trim(),{
+      method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'sync_all', payload:{
+        clientes:S.cli, obras:S.obr,
+        cotizaciones:S.cot, cuentas_cobro:S.cc,
+        materiales:S.mat, proveedores:S.prov,
+        movimientos:S.mov, nomina:S.nom
+      }})
+    });
+    S.cfg.lastSync=Date.now();
+    localStorage.setItem(KEYS.CFG,JSON.stringify(S.cfg));
+    updateSyncDot();
+    if(res) res.innerHTML='<div class="ibox ibox-green">✅ '+new Date().toLocaleTimeString('es-CO')+' — Datos enviados. Verifica en Google Sheets.</div>';
+    toast('✅ Datos sincronizados');
+  }catch(e){
+    if(res) res.innerHTML='<div class="ibox ibox-red">❌ Error: '+e.message+'</div>';
+    toast('❌ Error al sincronizar');
+  }
+}
+function autoSync(k, v, url){
+  const TAB={
+    'rr_cli2':'clientes','rr_cot2':'cotizaciones','rr_cc2':'cuentas_cobro',
+    'rr_mat2':'materiales','rr_prov2':'proveedores','rr_mov2':'movimientos',
+    'rr_obr2':'obras','rr_nom2':'nomina'
+  };
   const tab=TAB[k]; if(!tab) return;
-  enviarAlSheet(tab, Array.isArray(v)?v:[v]);
+  enviarAlSheet(tab, Array.isArray(v)?v:[v], url);
 }
 
 // Enviar datos al Google Sheet
 // Usa no-cors que siempre funciona desde cualquier origen (GitHub Pages)
 // El Apps Script recibe el POST aunque no podamos leer la respuesta
-function enviarAlSheet(tab, records){
-  if(!S.cfg?.syncUrl) return;
-  const url=S.cfg.syncUrl.trim();
+function enviarAlSheet(tab, records, url){
+  const u = url || S.cfg?.syncUrl;
+  if(!u) return;
   const body=JSON.stringify({action:'sync_tab', tab, records});
-  // Indicar que está enviando
   const dot=document.getElementById('syncDot');
   if(dot) dot.textContent='🔵';
-  fetch(url, {
-    method:'POST',
-    mode:'no-cors',
+  fetch(u.trim(), {
+    method:'POST', mode:'no-cors',
     headers:{'Content-Type':'text/plain'},
     body
   }).then(()=>{
-    S.cfg.lastSync=Date.now();
-    try{localStorage.setItem(KEYS.CFG,JSON.stringify(S.cfg));}catch(e){}
-    updateSyncDot(); // 🟢
-  }).catch(()=>{ updateSyncDot('error'); }); // 🔴
+    // Actualizar lastSync en localStorage directamente
+    try{
+      const cfgRaw=localStorage.getItem('rr_cfg2');
+      const cfg=cfgRaw?JSON.parse(cfgRaw):{};
+      cfg.lastSync=Date.now();
+      localStorage.setItem('rr_cfg2', JSON.stringify(cfg));
+      if(S.cfg) S.cfg.lastSync=cfg.lastSync;
+    }catch(e){}
+    updateSyncDot();
+  }).catch(()=>{ updateSyncDot('error'); });
 }
 function updateSyncDot(status){
   const el=document.getElementById('syncDot'); if(!el)return;
