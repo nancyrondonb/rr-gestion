@@ -428,17 +428,7 @@ const DB = {
   set(k,v){
     try{
       localStorage.setItem(k, JSON.stringify(v));
-      // SYNC: leer URL directamente de localStorage para máxima confiabilidad
-      // No depende de S.cfg en memoria (puede no estar listo al inicio)
-      try{
-        const cfgRaw = localStorage.getItem('rr_cfg2');
-        if(cfgRaw){
-          const cfg = JSON.parse(cfgRaw);
-          if(cfg.syncEnabled && cfg.syncUrl){
-            autoSync(k, v, cfg.syncUrl);
-          }
-        }
-      }catch(se){ /* sync falla silenciosamente */ }
+      syncGuardar(k, v);
       return true;
     }catch(e){
       toast('❌ Error guardando: '+e.message);
@@ -1455,13 +1445,12 @@ SHEETS.sMovimiento=()=>{
       </select>
     </div>
     <div id="cliSelMov"></div>
-    <div class="f">
-      <div class="obra-wrap">
-        <div class="obra-title">Obra / Proyecto <span style="font-weight:400;color:var(--muted);font-size:10px">(opcional)</span></div>
-        <div id="movObraChips" class="obra-opts"></div>
-        <input type="text" id="movObraInput" placeholder="Ej: Casa Caicedo, Arreglo techo..." value="${esc(_editMov?.obraNombre||'')}" oninput="movObraInputChange(this)">
-      </div>
+    <!-- Campo obra para gastos sin cliente o adicional -->
+    <div id="movObraSimple" class="f" style="margin-top:2px">
+      <label>Nombre de la Obra <span class="muted small">(si aplica)</span></label>
+      <input type="text" id="movObraInput" placeholder="Ej: Casa Caicedo, Arreglo techo..." value="${esc(_editMov?.obraNombre||'')}" oninput="if(_selObra){_selObra.nombre=this.value;}else{_selObra={id:null,nombre:this.value};}">
     </div>
+
     <div class="f"><label>Notas</label><textarea id="movNotas" rows="2">${esc(_editMov?.notas||'')}</textarea></div>
   </div>
   <div class="sf">
@@ -1480,9 +1469,9 @@ async function guardarMov(){
   // Obra opcional para gastos generales
   let obra=null;
   const movObraVal=(document.getElementById('movObraInput')?.value||'').trim();
-  if(movObraVal) _selObra={id:_selObra?.id||null, nombre:movObraVal};
-  if(_selCli&&!_selCli.skip&&_selObra&&_selObra.nombre){ obra=await asegurarObra(); }
-  else if(_selObra&&_selObra.nombre){ obra={id:null,nombre:_selObra.nombre}; }
+  if(movObraVal){ _selObra={id:_selObra?.id||null, nombre:movObraVal}; }
+  if(_sc&&!_sc?.skip&&_selObra&&_selObra.nombre){ obra=await asegurarObra(); }
+  else if(_selObra&&_selObra.nombre){ obra={id:null, nombre:_selObra.nombre}; }
   const m={
     id:_editMov?.id||uid(),
     tipo:_editMov.tipo,
@@ -1721,175 +1710,77 @@ async function syncTodo(){
     toast('❌ Error al sincronizar');
   }
 }
-function autoSync(k, v, url){
-  const TAB={
-    'rr_cli2':'clientes','rr_cot2':'cotizaciones','rr_cc2':'cuentas_cobro',
-    'rr_mat2':'materiales','rr_prov2':'proveedores','rr_mov2':'movimientos',
-    'rr_obr2':'obras','rr_nom2':'nomina'
-  };
-  const tab=TAB[k]; if(!tab) return;
-  enviarAlSheet(tab, Array.isArray(v)?v:[v], url);
+function syncGuardar(lsKey, records){
+  // Lee URL y estado DIRECTAMENTE de localStorage
+  // Nunca falla por S no inicializado
+  try{
+    const cfgRaw = localStorage.getItem('rr_cfg2');
+    if(!cfgRaw) return;
+    const cfg = JSON.parse(cfgRaw);
+    if(!cfg.syncEnabled || !cfg.syncUrl) return;
+    const TAB = {
+      'rr_cli2':'clientes','rr_cot2':'cotizaciones','rr_cc2':'cuentas_cobro',
+      'rr_mat2':'materiales','rr_prov2':'proveedores','rr_mov2':'movimientos',
+      'rr_obr2':'obras','rr_nom2':'nomina'
+    };
+    const tab = TAB[lsKey]; if(!tab) return;
+    const url = cfg.syncUrl.trim();
+    const body = JSON.stringify({action:'sync_tab', tab, records: Array.isArray(records)?records:[records]});
+    const dot = document.getElementById('syncDot');
+    if(dot) dot.textContent = '🔵';
+    fetch(url, {method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain'}, body})
+      .then(()=>{
+        const c = JSON.parse(localStorage.getItem('rr_cfg2')||'{}');
+        c.lastSync = Date.now();
+        localStorage.setItem('rr_cfg2', JSON.stringify(c));
+        const d2 = document.getElementById('syncDot');
+        if(d2) d2.textContent = '🟢';
+      })
+      .catch(()=>{ const d2=document.getElementById('syncDot'); if(d2) d2.textContent='🔴'; });
+  }catch(e){ console.warn('syncGuardar err',e); }
 }
 
-// Enviar datos al Google Sheet
-// Usa no-cors que siempre funciona desde cualquier origen (GitHub Pages)
-// El Apps Script recibe el POST aunque no podamos leer la respuesta
-function enviarAlSheet(tab, records, url){
-  const u = url || S.cfg?.syncUrl;
-  if(!u) return;
-  const body=JSON.stringify({action:'sync_tab', tab, records});
-  const dot=document.getElementById('syncDot');
-  if(dot) dot.textContent='🔵';
-  fetch(u.trim(), {
-    method:'POST', mode:'no-cors',
-    headers:{'Content-Type':'text/plain'},
-    body
-  }).then(()=>{
-    // Actualizar lastSync en localStorage directamente
-    try{
-      const cfgRaw=localStorage.getItem('rr_cfg2');
-      const cfg=cfgRaw?JSON.parse(cfgRaw):{};
-      cfg.lastSync=Date.now();
-      localStorage.setItem('rr_cfg2', JSON.stringify(cfg));
-      if(S.cfg) S.cfg.lastSync=cfg.lastSync;
-    }catch(e){}
-    updateSyncDot();
-  }).catch(()=>{ updateSyncDot('error'); });
-}
-function updateSyncDot(status){
-  const el=document.getElementById('syncDot'); if(!el)return;
-  if(status==='error'){ el.textContent='🔴'; el.title='Error al sincronizar'; return; }
-  if(S.cfg?.syncEnabled&&S.cfg?.syncUrl){
-    const min=S.cfg.lastSync?Math.floor((Date.now()-S.cfg.lastSync)/60000):-1;
-    el.textContent=min<0?'🟡':(min<5?'🟢':'🟡');
-    el.title='Última sync: '+(S.cfg.lastSync?new Date(S.cfg.lastSync).toLocaleString('es-CO'):'Nunca');
-  } else { el.textContent=''; el.title=''; }
-}
-
-// ===== MENU =====
-SHEETS.sMenu=()=>`
-  <div class="sh"><h3>Menú</h3><button class="x" onclick="closeSheet()">✕</button></div>
-  <div class="sb">
-    <div class="mlist">
-      <div class="mli" onclick="closeSheet();showSheet('sSync')"><div class="ic">☁️</div><div class="txt"><div class="t">Google Sheets</div></div><span class="arr">›</span></div>
-      <div class="mli" onclick="closeSheet();showSheet('sConfig')"><div class="ic">⚙️</div><div class="txt"><div class="t">Datos del Taller</div></div><span class="arr">›</span></div>
-      <div class="mli" onclick="exportBackup()"><div class="ic">💾</div><div class="txt"><div class="t">Respaldar datos</div></div><span class="arr">›</span></div>
-      <div class="mli" onclick="exportCSV()"><div class="ic">📊</div><div class="txt"><div class="t">Exportar CSV</div></div><span class="arr">›</span></div>
-    </div>
-    <div style="text-align:center;padding:16px;color:var(--muted);font-size:12px">Ornamentación RR · v2.0<br>Hecho con ❤️ para Mallerly</div>
-  </div>`;
-
-// ===== PDF =====
-function pdfCot(id){
-  const c=S.cot.find(x=>x.id===id); if(!c)return;
-  const cfg=S.cfg; const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:'mm',format:'a4'});
-  try{doc.addImage('data:image/jpeg;base64,'+LOGO_PDF,'JPEG',14,12,22,22);}catch(e){}
-  doc.setFontSize(10).setFont('helvetica','italic');
-  doc.text(cfg.taller,40,16); doc.setFontSize(9).setFont('helvetica','normal');
-  doc.text(`Nit: ${cfg.nit}`,40,20); doc.text(`${cfg.cel1} - ${cfg.cel2}`,40,24);
-  doc.setTextColor(60,100,170); doc.text(`Email: ${cfg.email}`,40,28); doc.setTextColor(0,0,0);
-  doc.setFontSize(13).setFont('helvetica','bold');
-  doc.text(`Cotización N° ${pad(c.numero)}`,196,16,{align:'right'});
-  doc.setFontSize(10).setFont('helvetica','normal');
-  doc.text(fechaCort(c.fecha),196,22,{align:'right'});
-  doc.setDrawColor(200,200,200); doc.line(14,36,196,36);
-  let y=44;
-  doc.setFontSize(10).setFont('helvetica','bold'); doc.text('Datos Cliente:',14,y);
-  doc.setFont('helvetica','normal'); doc.text(c.cliente?.nombre||'',40,y); y+=5;
-  doc.setFont('helvetica','bold'); doc.text('Nit:',14,y); doc.setFont('helvetica','normal'); doc.text(c.cliente?.nit||'',22,y);
-  doc.setFont('helvetica','bold'); doc.text('Cel:',80,y); doc.setFont('helvetica','normal'); doc.text(c.cliente?.cel||'',88,y); y+=6;
-  const rows=[];
-  if(c.obra)rows.push([{content:`Obra: ${c.obra}`,colSpan:4,styles:{fontStyle:'italic',fillColor:[245,247,250],textColor:[80,80,80]}}]);
-  (c.secciones||[]).forEach(s=>{
-    rows.push([{content:'',styles:{fontStyle:'bold'}},{content:s.titulo,styles:{fontStyle:'bold'}},{content:'',styles:{fontStyle:'bold'}},{content:fmtCOP(s.precio),styles:{fontStyle:'bold',halign:'right'}}]);
-    (s.items||[]).forEach(it=>rows.push([{content:String(it.cant||''),styles:{halign:'center'}},it.desc||'','','']));
+function syncTodoAhora(url){
+  return new Promise((resolve)=>{
+    const S2 = {
+      cli: JSON.parse(localStorage.getItem('rr_cli2')||'[]'),
+      obr: JSON.parse(localStorage.getItem('rr_obr2')||'[]'),
+      cot: JSON.parse(localStorage.getItem('rr_cot2')||'[]'),
+      cc:  JSON.parse(localStorage.getItem('rr_cc2')||'[]'),
+      mat: JSON.parse(localStorage.getItem('rr_mat2')||'[]'),
+      prov:JSON.parse(localStorage.getItem('rr_prov2')||'[]'),
+      mov: JSON.parse(localStorage.getItem('rr_mov2')||'[]'),
+      nom: JSON.parse(localStorage.getItem('rr_nom2')||'[]')
+    };
+    const dot = document.getElementById('syncDot');
+    if(dot) dot.textContent='🔵';
+    fetch(url.trim(), {
+      method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'sync_all', payload:S2})
+    }).then(()=>{
+      const c = JSON.parse(localStorage.getItem('rr_cfg2')||'{}');
+      c.lastSync = Date.now();
+      localStorage.setItem('rr_cfg2', JSON.stringify(c));
+      if(dot) dot.textContent='🟢';
+      resolve(true);
+    }).catch(()=>{ if(dot) dot.textContent='🔴'; resolve(false); });
   });
-  const todosVarios=[...(c.variosItems||[]),...(c.varios?[c.varios]:[])].join(', ');
-  if(todosVarios)rows.push([{content:'Materiales varios: '+todosVarios,colSpan:4,styles:{fontStyle:'italic',textColor:[100,100,100]}}]);
-  const todosAcc=[...(c.accesorios||[]),...(c.accesoriosExtra?[c.accesoriosExtra]:[])].join(', ');
-  if(todosAcc)rows.push([{content:'Accesorios: '+todosAcc,colSpan:4,styles:{fontStyle:'italic',textColor:[100,100,100]}}]);
-  rows.push([{content:'',styles:{fillColor:[255,255,255]}},{content:'',styles:{fillColor:[255,255,255]}},{content:'Total:',styles:{fontStyle:'bold',halign:'right',fillColor:[230,238,247]}},{content:fmtCOP(c.total),styles:{fontStyle:'bold',halign:'right',fillColor:[230,238,247],textColor:[13,71,161]}}]);
-  if(c.anticipo>0){
-    rows.push([{content:'',styles:{fillColor:[255,255,255]}},{content:'',styles:{fillColor:[255,255,255]}},{content:'Anticipo:',styles:{fontStyle:'bold',halign:'right',fillColor:[255,249,230]}},{content:'- '+fmtCOP(c.anticipo),styles:{fontStyle:'bold',halign:'right',fillColor:[255,249,230],textColor:[180,100,0]}}]);
-    rows.push([{content:'',styles:{fillColor:[255,255,255]}},{content:'',styles:{fillColor:[255,255,255]}},{content:'Saldo:',styles:{fontStyle:'bold',halign:'right',fillColor:[209,250,229]}},{content:fmtCOP(c.total-c.anticipo),styles:{fontStyle:'bold',halign:'right',fillColor:[209,250,229],textColor:[4,120,87]}}]);
-  }
-  doc.autoTable({startY:y,head:[['Cant','Descripción','Precio Unidad','Subtotal']],body:rows,theme:'grid',headStyles:{fillColor:[21,101,192],textColor:255,fontSize:10,halign:'center'},styles:{fontSize:9,cellPadding:2.2},columnStyles:{0:{cellWidth:18,halign:'center'},1:{cellWidth:'auto'},2:{cellWidth:32,halign:'right'},3:{cellWidth:32,halign:'right'}},margin:{left:14,right:14}});
-  let yy=doc.lastAutoTable.finalY+6; doc.setFontSize(9);
-  if(c.observaciones){doc.setFont('helvetica','bold');doc.text('Observaciones:',14,yy);doc.setFont('helvetica','normal');doc.text(c.observaciones,45,yy);yy+=5;}
-  if(c.tiempoEntrega){doc.setFont('helvetica','bold');doc.text('Tiempo de entrega:',14,yy);doc.setFont('helvetica','normal');doc.text(c.tiempoEntrega,50,yy);yy+=5;}
-  if(c.condicionesPago){doc.setFont('helvetica','bold');doc.text('Condiciones de pago:',14,yy);doc.setFont('helvetica','normal');doc.text(c.condicionesPago,55,yy);yy+=5;}
-  yy+=10; doc.text('Cordialmente;',14,yy); yy+=4;
-  try{doc.addImage('data:image/png;base64,'+FIRMA_SIG,'PNG',14,yy,55,14);}catch(e){}
-  yy+=18;
-  doc.setFont('helvetica','bold'); doc.text(cfg.titular,14,yy); yy+=5;
-  doc.setFont('helvetica','normal'); doc.text(`Cc. ${cfg.cc} Puerto Asís`,14,yy);
-  doc.save(`Cotizacion_${pad(c.numero)}_${(c.cliente?.nombre||'').replace(/[^a-zA-Z0-9]/g,'_')}.pdf`);
-  toast('PDF generado ✓');
 }
 
-function pdfCC(id){
-  const c=S.cc.find(x=>x.id===id); if(!c)return;
-  const cfg=S.cfg; const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:'mm',format:'a4'});
-  try{doc.addImage('data:image/jpeg;base64,'+LOGO_PDF,'JPEG',14,12,26,26);}catch(e){}
-  doc.setFontSize(11).setFont('helvetica','bolditalic'); doc.text(cfg.taller,196,16,{align:'right'});
-  doc.setFontSize(10).setFont('helvetica','italic'); doc.text(`Nit: ${cfg.nit}`,196,21,{align:'right'});
-  let y=50;
-  doc.setFontSize(10).setFont('helvetica','normal'); doc.text(`${cfg.ciudad} ${fechaLarga(c.fecha)}`,14,y);
-  doc.text(`CC ${pad(c.numero)}.${c.fecha.slice(0,4)}`,196,y,{align:'right'}); y+=18;
-  doc.setFontSize(16).setFont('helvetica','bold'); doc.text(c.cliente?.nombre||'',105,y,{align:'center'}); y+=7;
-  doc.setFontSize(12); doc.text(`Nit.: ${c.cliente?.nit||''}`,105,y,{align:'center'}); y+=9;
-  doc.setFontSize(11).setFont('helvetica','normal'); doc.text('DEBE A:',105,y,{align:'center'}); y+=11;
-  doc.setFontSize(13).setFont('helvetica','bold'); doc.text(cfg.titular,105,y,{align:'center'}); y+=6;
-  doc.setFontSize(11); doc.text(`Cc. ${cfg.cc}`,105,y,{align:'center'}); y+=14;
-  doc.setFont('helvetica','normal').setFontSize(11); doc.text('POR CONCEPTO DE:',105,y,{align:'center'}); y+=8;
-  const sc=doc.splitTextToSize(c.concepto,170); doc.text(sc,14,y); y+=sc.length*5+2;
-  const sl=doc.splitTextToSize(`La suma de ${numALetras(c.valor)} pesos mcte ($ ${Math.round(c.valor).toLocaleString('es-CO').replace(/,/g,'.')}).`,170);
-  doc.text(sl,14,y); y+=sl.length*5+6;
-  doc.setFont('helvetica','italic').setFontSize(10); doc.text('Consignar el valor en la siguiente cuenta bancaria:',14,y); y+=8;
-  const x1=14,x2=110;
-  doc.text('Banco: ',x1,y);doc.setFont('helvetica','bolditalic');doc.text(cfg.banco,x1+15,y);
-  doc.setFont('helvetica','italic');doc.text('Ciudad de la cuenta: ',x2,y);doc.setFont('helvetica','bolditalic');doc.text(cfg.ciudadCuenta,x2+38,y);y+=6;
-  doc.setFont('helvetica','italic');doc.text('Cuenta No.: ',x1,y);doc.setFont('helvetica','bolditalic');doc.text(cfg.cuentaNum,x1+22,y);
-  doc.setFont('helvetica','italic');doc.text('Tipo de cuenta: ',x2,y);doc.setFont('helvetica','bolditalic');doc.text(cfg.cuentaTipo,x2+30,y);y+=6;
-  doc.setFont('helvetica','italic');doc.text('Nequi: ',x1,y);doc.setFont('helvetica','bolditalic');doc.text(cfg.nequi,x1+13,y);y+=6;
-  doc.setFont('helvetica','italic');doc.text('Titular: ',x1,y);doc.setFont('helvetica','bolditalic');doc.text(cfg.titular,x1+16,y);
-  doc.setFont('helvetica','italic');doc.text('C.C.: ',x2,y);doc.setFont('helvetica','bolditalic');doc.text(cfg.cc,x2+12,y);
-  y+=18;doc.setFont('helvetica','normal').setFontSize(11);doc.text('Cordialmente;',14,y);y+=4;
-  try{doc.addImage('data:image/png;base64,'+FIRMA_SIG,'PNG',14,y,60,16);}catch(e){}
-  y+=20;
-  doc.setFont('helvetica','bold');doc.text(cfg.titular,14,y);y+=5;
-  doc.setFont('helvetica','normal').setFontSize(10);doc.text(`Cc. ${cfg.cc} de Puerto Asís Ptyo.`,14,y);
-  const ph=doc.internal.pageSize.getHeight();
-  doc.setDrawColor(255,140,0);doc.setLineWidth(.5);doc.line(14,ph-18,196,ph-18);
-  doc.setFontSize(9).setFont('helvetica','italic').setTextColor(80,80,80);
-  doc.text(`${cfg.direccion}   Email: ${cfg.email}   Cel.: ${cfg.cel1} - ${cfg.cel2}`,105,ph-13,{align:'center'});
-  doc.save(`CuentaCobro_${pad(c.numero)}_${(c.cliente?.nombre||'').replace(/[^a-zA-Z0-9]/g,'_')}.pdf`);
-  toast('PDF generado ✓');
+
+function updateSyncDot(status){
+  const el = document.getElementById('syncDot');
+  if(!el) return;
+  try{
+    const c = JSON.parse(localStorage.getItem('rr_cfg2')||'{}');
+    if(!c.syncEnabled||!c.syncUrl){ el.textContent=''; return; }
+    if(status==='error'){ el.textContent='🔴'; return; }
+    if(!c.lastSync){ el.textContent='🟡'; return; }
+    const min = Math.floor((Date.now()-c.lastSync)/60000);
+    el.textContent = min<5?'🟢':'🟡';
+    el.title = 'Última sync: '+new Date(c.lastSync).toLocaleString('es-CO');
+  }catch(e){ el.textContent=''; }
 }
 
-// ===== BACKUP / CSV =====
-async function exportBackup(){ const data={version:2,fecha:new Date().toISOString(),...S}; const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const u=URL.createObjectURL(b); const a=document.createElement('a');a.href=u;a.download=`RR_Backup_${hoy()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);toast('Respaldo descargado ✓'); }
-function importBackup(){ if(!confirm('Esto reemplazará TODOS los datos. ¿Continuar?'))return; const inp=document.createElement('input');inp.type='file';inp.accept='.json';inp.onchange=async e=>{ const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(d.cfg)localStorage.setItem(KEYS.CFG,JSON.stringify(d.cfg));if(d.cot)localStorage.setItem(KEYS.COT,JSON.stringify(d.cot));if(d.cc)localStorage.setItem(KEYS.CC,JSON.stringify(d.cc));if(d.cli)localStorage.setItem(KEYS.CLI,JSON.stringify(d.cli));if(d.mat)localStorage.setItem(KEYS.MAT,JSON.stringify(d.mat));if(d.prov)localStorage.setItem(KEYS.PROV,JSON.stringify(d.prov));if(d.mov)localStorage.setItem(KEYS.MOV,JSON.stringify(d.mov));if(d.obr)localStorage.setItem(KEYS.OBR,JSON.stringify(d.obr));if(d.cnt)localStorage.setItem(KEYS.CNT,JSON.stringify(d.cnt));await loadAll();renderAll();toast('Datos restaurados ✓');}catch(err){toast('Archivo inválido');} };inp.click(); }
-function csvDL(name,headers,rows){ let csv='\ufeff'+headers.join(';')+'\n'; rows.forEach(r=>{csv+=r.map(v=>{const s=String(v??'');return/[";,\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(';')+'\n';}); const b=new Blob([csv],{type:'text/csv;charset=utf-8'}); const u=URL.createObjectURL(b); const a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000); }
-function exportCSV(){
-  csvDL('clientes.csv',['ID','Nombre','NIT','Celular','Email','Direccion'],S.cli.map(c=>[c.id,c.nombre,c.nit,c.cel,c.email,c.direccion]));
-  setTimeout(()=>csvDL('obras.csv',['ID','Nombre','ClienteID','ClienteNombre'],S.obr.map(o=>[o.id,o.nombre,o.clienteId,S.cli.find(c=>c.id===o.clienteId)?.nombre||''])),200);
-  setTimeout(()=>csvDL('cotizaciones.csv',['Numero','Fecha','Cliente','NIT','Obra','Total'],S.cot.map(c=>[c.numero,c.fecha,c.cliente?.nombre,c.cliente?.nit,c.obra,c.total])),400);
-  setTimeout(()=>csvDL('cuentas_cobro.csv',['Numero','Fecha','Cliente','NIT','Obra','Concepto','Valor'],S.cc.map(c=>[c.numero,c.fecha,c.cliente?.nombre,c.cliente?.nit,c.obraNombre,c.concepto,c.valor])),600);
-  setTimeout(()=>csvDL('movimientos.csv',['Fecha','Tipo','Monto','Descripcion','Categoria','Cliente','Obra','MetodoPago','Notas'],S.mov.map(m=>[m.fecha,m.tipo,m.monto,m.descripcion,m.categoria,m.clienteNombre,m.obraNombre,m.metodoPago,m.notas])),800);
-  setTimeout(()=>toast('5 archivos CSV exportados ✓'),1000);
-}
 
-// ===== INIT =====
-(async()=>{
-  // localStorage siempre disponible en navegadores modernos
-  await loadAll();
-  renderAll();
-  updateSyncDot();
-  // Inicializar saludo con hora
-  const h=new Date().getHours();
-  document.getElementById('saludo').textContent=(h<12?'¡Buenos días, Mallerly! 🌅':h<18?'¡Buenas tardes, Mallerly! ☀️':'¡Buenas noches, Mallerly! 🌙');
-})();
-</script>
-</body>
-</html>
