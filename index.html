@@ -98,9 +98,10 @@ main{flex:1;overflow-y:auto;padding-bottom:68px;-webkit-overflow-scrolling:touch
 .col-body{display:none;padding:9px 10px;border:1.5px solid var(--bdr);border-top:none;border-radius:0 0 10px 10px;margin-bottom:9px}
 .col-body.op{display:block}
 .chkgrid{display:flex;flex-wrap:wrap;gap:5px}
-.chkitem{display:flex;align-items:center;gap:4px;padding:4px 9px;border-radius:18px;cursor:pointer;font-size:11px;font-weight:700;border:1.5px solid var(--bdr);background:#F3F4F6;user-select:none}
-.chkitem.acc.on{background:#FEF3C7;border-color:#F59E0B}
-.chkitem.var.on{background:#D1FAE5;border-color:#22C55E}
+.chkitem{padding:5px 11px;border-radius:18px;cursor:pointer;font-size:11px;font-weight:700;border:1.5px solid var(--bdr);background:#F3F4F6;font-family:inherit;transition:all .15s}
+.chkitem:active{transform:scale(.95)}
+.chkitem.acc.on{background:#FEF3C7;border-color:#F59E0B;color:#92400E}
+.chkitem.var.on{background:#D1FAE5;border-color:#22C55E;color:#14532D}
 /* TOTALES */
 .totbox{background:linear-gradient(135deg,#EFF6FF,#DBEAFE);padding:12px;border-radius:10px;text-align:center;margin:9px 0}
 .totbox .lb{font-size:10px;color:var(--mut);text-transform:uppercase}.totbox .vl{font-size:22px;font-weight:700;color:var(--pr)}
@@ -779,20 +780,33 @@ function buildChkGrid(bodyId){
   const items=isAcc
     ?['Bisagras','Chapas','Pasadores','Manijas','Candados','Aldabas','Tornillos','Remaches','Pernos','Tuercas','Arandelas','Varillas']
     :['Anticorrosivo','Pintura','Esmalte','Masilla','Lija','Trapos','Thinner','Soldadura','Discos de corte','Brocas'];
-  const sel=isAcc?(_editCot?.accesorios||[]):(_editCot?.variosItems||[]);
   const tipo=isAcc?'acc':'var';
-  grid.innerHTML=items.map(item=>{
+  const arr=isAcc?'accesorios':'variosItems';
+  if(!_editCot[arr])_editCot[arr]=[];
+  const sel=_editCot[arr];
+  grid.innerHTML='';
+  items.forEach(item=>{
     const on=sel.includes(item);
-    return`<label class="chkitem ${tipo}${on?' on':''}" onclick="this.classList.toggle('on');toggleChk('${tipo}','${item}',this)"><input type="checkbox" ${on?'checked':''} style="display:none">${item}</label>`;
-  }).join('');
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.textContent=item;
+    btn.className='chkitem '+(isAcc?'acc':'var')+(on?' on':'');
+    btn.onclick=function(){
+      if(!_editCot[arr])_editCot[arr]=[];
+      if(_editCot[arr].includes(item)){
+        _editCot[arr]=_editCot[arr].filter(x=>x!==item);
+        this.classList.remove('on');
+      } else {
+        _editCot[arr].push(item);
+        this.classList.add('on');
+      }
+    };
+    grid.appendChild(btn);
+  });
 }
 
 function toggleChk(tipo,item,lbl){
-  if(!_editCot)return;
-  const arr=tipo==='acc'?'accesorios':'variosItems';
-  if(!_editCot[arr])_editCot[arr]=[];
-  if(lbl.classList.contains('on'))_editCot[arr].push(item);
-  else _editCot[arr]=_editCot[arr].filter(x=>x!==item);
+  // Legacy - no usado
 }
 
 function recalcAnticipo(){
@@ -830,12 +844,36 @@ function renderSecsCot(){
 }
 
 function matSug(inp,si,ji){
-  const q=inp.value.trim();const sug=document.getElementById(`sug_${si}_${ji}`);if(!sug)return;
-  if(q.length<2){sug.classList.remove('op');return;}
-  const m=S.mat.filter(x=>(x.descripcion||'').toLowerCase().includes(q.toLowerCase()));
-  if(!m.length){sug.classList.remove('op');return;}
-  sug.innerHTML=m.map(x=>`<div onclick="selSug(${si},${ji},'${esc(x.descripcion).replace(/'/g,"&#39;")}')">${esc(x.descripcion)}</div>`).join('');
-  sug.classList.add('op');
+  const q=inp.value.trim();
+  const sugId='sug_'+si+'_'+ji;
+  const sug=document.getElementById(sugId); if(!sug) return;
+  if(q.length<2){sug.classList.remove('op');sug.innerHTML='';return;}
+  reload();
+  const matches=S.mat.filter(x=>(x.descripcion||'').toLowerCase().includes(q.toLowerCase()));
+  const existe=S.mat.some(x=>(x.descripcion||'').toLowerCase()===q.toLowerCase());
+  sug.innerHTML='';
+  matches.forEach(x=>{
+    const d=document.createElement('div');
+    d.textContent=x.descripcion;
+    d.onclick=function(){selSug(si,ji,x.descripcion);};
+    sug.appendChild(d);
+  });
+  if(!existe && q.length>2){
+    const d=document.createElement('div');
+    d.textContent='+ Guardar "'+q+'" en catálogo';
+    d.style.cssText='color:var(--pr);font-weight:700;border-top:1px solid #eee';
+    d.onclick=function(){guardarEnCatalogo(q,si,ji);};
+    sug.appendChild(d);
+  }
+  if(sug.children.length>0) sug.classList.add('op');
+  else sug.classList.remove('op');
+}
+function guardarEnCatalogo(desc,si,ji){
+  const m={id:uid(),descripcion:desc,unidad:'',precio:0,proveedor:'',creadoEn:Date.now()};
+  reload(); S.mat.push(m); guardar(K.MAT,S.mat);
+  const sug=document.getElementById('sug_'+si+'_'+ji);
+  if(sug){sug.classList.remove('op');sug.innerHTML='';}
+  toast('✅ Guardado en catálogo: '+desc);
 }
 function selSug(si,ji,desc){_editCot.secciones[si].items[ji].desc=desc;renderSecsCot();}
 
@@ -1382,9 +1420,13 @@ SH.sMenu=()=>`
 // PDF COTIZACIÓN
 // ═══════════════════════════════════════════════════════
 function pdfCot(id){
-  reload();const c=S.cot.find(x=>x.id===id);if(!c){toast('No encontrada');return;}
-  if(typeof window.jspdf==='undefined'){toast('Cargando librerías…');return;}
-  const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'mm',format:'a4'});
+  reload();
+  const c=S.cot.find(x=>x.id===id);
+  if(!c){toast('No se encontró la cotización');return;}
+  console.log('PDF Cot:', c.id, 'jspdf:', typeof window.jspdf, 'FIRMA len:', FIRMA?.length);
+  const jspdfLib=window.jspdf||window.jsPDF;
+  if(!jspdfLib&&typeof jsPDF==='undefined'){toast('Error: librería PDF no disponible');return;}
+  const {jsPDF}=jspdfLib||{jsPDF:window.jsPDF};const doc=new jsPDF({unit:'mm',format:'a4'});
   const cfg=S.cfg;
   try{doc.addImage('data:image/jpeg;base64,'+LOGO_PDF,'JPEG',14,12,22,22);}catch(e){}
   doc.setFontSize(10).setFont('helvetica','italic').setTextColor(40,40,40);
@@ -1437,8 +1479,9 @@ function pdfCot(id){
 // ═══════════════════════════════════════════════════════
 function pdfCC(id){
   reload();const c=S.cc.find(x=>x.id===id);if(!c){toast('No encontrada');return;}
-  if(typeof window.jspdf==='undefined'){toast('Cargando librerías…');return;}
-  const {jsPDF}=window.jspdf;const doc=new jsPDF({unit:'mm',format:'a4'});
+  const jspdfLib=window.jspdf||window.jsPDF;
+  if(!jspdfLib&&typeof jsPDF==='undefined'){toast('Error: librería PDF no disponible');return;}
+  const {jsPDF}=jspdfLib||{jsPDF:window.jsPDF};const doc=new jsPDF({unit:'mm',format:'a4'});
   const cfg=S.cfg;
   try{doc.addImage('data:image/jpeg;base64,'+LOGO_PDF,'JPEG',14,12,26,26);}catch(e){}
   doc.setFontSize(11).setFont('helvetica','bolditalic');doc.text(cfg.taller,196,16,{align:'right'});
